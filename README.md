@@ -24,7 +24,7 @@ Para **compilar**: JDK 25 e Maven (ou use o GitHub Actions deste repositório, q
 
 ## Instalação
 
-1. Baixe `DiscordKitBridge-1.1.0.jar` (aba *Actions* → último build → *Artifacts*, ou compile com `mvn package`).
+1. Baixe `DiscordKitBridge-1.1.1.jar` (aba *Actions* → último build → *Artifacts*, ou compile com `mvn package`).
 2. Coloque na pasta `plugins/` do servidor e reinicie.
 3. Abra `plugins/DiscordKitBridge/config.yml`:
    - O plugin gera um **token forte** em `bridge.secret` na primeira execução. Copie-o para o bot.
@@ -222,7 +222,7 @@ Faça backup de `kits/` e `data/`.
 
 ```bash
 ./scripts/run-tests.sh   # 60 testes, só JDK (sem servidor, sem Maven)
-mvn package              # gera target/DiscordKitBridge-1.1.0.jar (JDK 25)
+mvn package              # gera target/DiscordKitBridge-1.1.1.jar (JDK 25)
 ```
 
 Veja `TESTING.md` para o roteiro de testes dentro do jogo.

@@ -35,6 +35,18 @@ public final class KitCommand implements TabExecutor {
     private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm").withZone(ZoneId.systemDefault());
     private static final List<String> SUBS = List.of("create", "delete", "list", "info", "preview", "give", "toggle", "claim", "reload", "help");
 
+    /** Permission required by each subcommand; used by help and tab completion so players only see what they can run. */
+    private static final Map<String, String> PERMS = Map.of(
+            "create", "discordkitbridge.create",
+            "delete", "discordkitbridge.delete",
+            "list", "discordkitbridge.list",
+            "info", "discordkitbridge.list",
+            "preview", "discordkitbridge.preview",
+            "give", "discordkitbridge.give",
+            "toggle", "discordkitbridge.admin",
+            "claim", "discordkitbridge.claim",
+            "reload", "discordkitbridge.admin");
+
     private record Confirmation(String kit, long expires) {
     }
 
@@ -276,16 +288,21 @@ public final class KitCommand implements TabExecutor {
     }
 
     private void help(CommandSender s) {
+        String[][] lines = {
+                {"create", " /dk create <nome>  - salva a Shulker Box da mão como kit"},
+                {"delete", " /dk delete <nome>  - remove um kit (pede confirmação)"},
+                {"list", " /dk list           - lista os kits"},
+                {"info", " /dk info <nome>    - detalhes de um kit"},
+                {"preview", " /dk preview <nome> - visualiza os itens"},
+                {"give", " /dk give <nome> [jogador] - entrega o kit (a você, se omitir o jogador)"},
+                {"toggle", " /dk toggle <nome>  - ativa/desativa um kit"},
+                {"claim", " /dk claim          - recebe kits pendentes"},
+                {"reload", " /dk reload         - recarrega a configuração"},
+        };
         Msg.ok(s, "Comandos:");
-        Msg.plain(s, " /dk create <nome>  - salva a Shulker Box da mão como kit");
-        Msg.plain(s, " /dk delete <nome>  - remove um kit (pede confirmação)");
-        Msg.plain(s, " /dk list           - lista os kits");
-        Msg.plain(s, " /dk info <nome>    - detalhes de um kit");
-        Msg.plain(s, " /dk preview <nome> - visualiza os itens");
-        Msg.plain(s, " /dk give <nome> [jogador] - entrega o kit (a você, se omitir o jogador)");
-        Msg.plain(s, " /dk toggle <nome>  - ativa/desativa um kit");
-        Msg.plain(s, " /dk claim          - recebe kits pendentes");
-        Msg.plain(s, " /dk reload         - recarrega a configuração");
+        for (String[] l : lines) {
+            if (s.hasPermission(PERMS.get(l[0]))) Msg.plain(s, l[1]);
+        }
     }
 
     private boolean allowed(CommandSender s, String perm) {
@@ -300,7 +317,10 @@ public final class KitCommand implements TabExecutor {
     public List<String> onTabComplete(CommandSender s, Command cmd, String label, String[] a) {
         List<String> out = new ArrayList<>();
         if (a.length == 1) {
-            for (String sub : SUBS) if (sub.startsWith(a[0].toLowerCase(Locale.ROOT))) out.add(sub);
+            for (String sub : SUBS) {
+                String perm = PERMS.get(sub);
+                if (sub.startsWith(a[0].toLowerCase(Locale.ROOT)) && (perm == null || s.hasPermission(perm))) out.add(sub);
+            }
         } else if (a.length == 2 && List.of("delete", "info", "preview", "give", "toggle").contains(a[0].toLowerCase(Locale.ROOT))
                 && s.hasPermission("discordkitbridge.list")) {
             for (KitData k : plugin.kits().list()) if (k.name().toLowerCase(Locale.ROOT).startsWith(a[1].toLowerCase(Locale.ROOT))) out.add(k.name());
