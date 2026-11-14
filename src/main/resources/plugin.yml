@@ -1,0 +1,38 @@
+name: DiscordKitBridge
+version: '${project.version}'
+main: br.asthen.kitbridge.DiscordKitBridge
+api-version: '26.3'
+description: Entrega kits pedidos pelo bot do Discord, cadastrados a partir de Shulker Boxes.
+authors: [Asthen]
+softdepend: [floodgate]
+
+commands:
+  dk:
+    description: Gerencia os kits do DiscordKitBridge
+    usage: /dk <create|delete|list|info|preview|toggle|claim|reload>
+    aliases: [discordkit]
+
+permissions:
+  discordkitbridge.admin:
+    description: Acesso total ao DiscordKitBridge
+    default: op
+    children:
+      discordkitbridge.create: true
+      discordkitbridge.delete: true
+      discordkitbridge.list: true
+      discordkitbridge.preview: true
+  discordkitbridge.create:
+    description: Cadastrar kits com /dk create
+    default: false
+  discordkitbridge.delete:
+    description: Remover kits com /dk delete
+    default: false
+  discordkitbridge.list:
+    description: Ver kits com /dk list e /dk info
+    default: false
+  discordkitbridge.preview:
+    description: Visualizar kits com /dk preview
+    default: false
+  discordkitbridge.claim:
+    description: Receber kits pendentes com /dk claim
+    default: true

@@ -1,0 +1,59 @@
+# DiscordKitBridge — configuração
+# Depois de editar, use /dk reload.
+
+bridge:
+  enabled: true
+
+  # Como o plugin conversa com o bot:
+  #   poll   = o PLUGIN consulta o bot (só conexões de saída). Use em hospedagens que NÃO abrem porta
+  #            de entrada (ex.: planos gratuitos). É o modo padrão.
+  #   server = o plugin abre uma API REST (/api/v1/...) e o BOT chama o plugin. Exige uma porta liberada.
+  mode: "poll"
+
+  # Token compartilhado com o bot. Deixe vazio: um token forte é gerado na primeira execução.
+  # Alternativa mais segura: defina a variável de ambiente DKB_SECRET (ela tem prioridade sobre este campo).
+  secret: ""
+
+  poll:
+    # Endereço público do seu bot (onde roda bot-integration/asthen-bridge.js). Use HTTPS.
+    url: "https://SEU-BOT.exemplo.com"
+    interval-seconds: 3
+    max-per-poll: 5
+    http-timeout: 10
+
+  server:
+    # 127.0.0.1 = só a própria máquina. Para outro endereço use firewall e TLS (proxy reverso).
+    host: "127.0.0.1"
+    port: 8080
+
+platform:
+  # Prefixo que o Floodgate coloca nos nomes de jogadores Bedrock em servidores Java.
+  floodgate-prefix: "."
+  # Sem Floodgate a plataforma não pode ser comprovada. false = recusa pedidos Bedrock (recomendado).
+  # true = aceita quem tem o prefixo no nome (qualquer jogador Java poderia imitar isso).
+  allow-unverified-bedrock: false
+
+kits:
+  allow-discord-delivery: true
+  # true  = só entrega a quem está online.
+  # false = se estiver offline, guarda o kit e entrega quando o jogador entrar.
+  require-online: true
+
+delivery:
+  # Inventário cheio: true = guarda o kit INTEIRO e o jogador recebe com /dk claim (ou ao entrar).
+  #                   false = recusa o pedido (nada é entregue).
+  pending-if-inventory-full: true
+  # Recusa um segundo pedido idêntico (mesmo jogador + kit) enquanto o primeiro está em andamento.
+  prevent-duplicate: true
+
+security:
+  # Máximo de chamadas por minuto, por IP (modo server).
+  rate-limit: 10
+  # Segundos até um pedido que não foi processado ser encerrado com TIMEOUT.
+  request-timeout: 30
+  max-body-bytes: 4096
+
+logs:
+  # Alterar este valor exige reiniciar o servidor.
+  enabled: true
+  retention-days: 30
