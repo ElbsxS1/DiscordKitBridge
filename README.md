@@ -24,7 +24,7 @@ Para **compilar**: JDK 25 e Maven (ou use o GitHub Actions deste repositório, q
 
 ## Instalação
 
-1. Baixe `DiscordKitBridge-1.0.0.jar` (aba *Actions* → último build → *Artifacts*, ou compile com `mvn package`).
+1. Baixe `DiscordKitBridge-1.1.0.jar` (aba *Actions* → último build → *Artifacts*, ou compile com `mvn package`).
 2. Coloque na pasta `plugins/` do servidor e reinicie.
 3. Abra `plugins/DiscordKitBridge/config.yml`:
    - O plugin gera um **token forte** em `bridge.secret` na primeira execução. Copie-o para o bot.
@@ -55,11 +55,12 @@ Regras de nome: 1 a 32 caracteres, só letras, números, `_` e `-`. Nomes iguais
 | `/dk list` | `discordkitbridge.list` | Lista os kits |
 | `/dk info <nome>` | `discordkitbridge.list` | Nome, nº de itens, data de cadastro, status |
 | `/dk preview <nome>` | `discordkitbridge.preview` | Abre uma janela só de leitura com os itens |
+| `/dk give <nome> [jogador]` | `discordkitbridge.give` | Entrega o kit a você (ou ao jogador indicado). Inventário cheio → fica pendente |
 | `/dk toggle <nome>` | `discordkitbridge.admin` | Ativa/desativa um kit (desativado não é entregue) |
 | `/dk claim` | `discordkitbridge.claim` (todos) | Recebe kits pendentes (inventário cheio) |
 | `/dk reload` | `discordkitbridge.admin` | Recarrega config e kits |
 
-`discordkitbridge.admin` (padrão: operadores) inclui create, delete, list e preview. Jogadores comuns só têm `claim`.
+`discordkitbridge.admin` (padrão: operadores) inclui create, delete, list, preview e give. Jogadores comuns só têm `claim`.
 
 ## Como a entrega funciona
 
@@ -220,8 +221,8 @@ Faça backup de `kits/` e `data/`.
 ## Desenvolvimento
 
 ```bash
-./scripts/run-tests.sh   # 58 testes, só JDK (sem servidor, sem Maven)
-mvn package              # gera target/DiscordKitBridge-1.0.0.jar (JDK 25)
+./scripts/run-tests.sh   # 60 testes, só JDK (sem servidor, sem Maven)
+mvn package              # gera target/DiscordKitBridge-1.1.0.jar (JDK 25)
 ```
 
 Veja `TESTING.md` para o roteiro de testes dentro do jogo.

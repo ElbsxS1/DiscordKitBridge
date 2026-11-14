@@ -468,6 +468,39 @@ public final class TestMain {
             }
         });
 
+        section("/dk give (entrega direta do admin)");
+        test("give: delivered whole; full inventory parks the whole kit; claim then delivers once", () -> {
+            try (Env e = new Env()) {
+                e.addKit("VipGuloso");
+                PlayerRef p = e.game.join("Elber", Platform.BEDROCK);
+                KitData k = e.kits.get("VipGuloso").orElseThrow();
+                eq(DeliveryService.DirectOutcome.DELIVERED, e.service.giveDirect(p, k, "admin"), "delivered");
+                eq(1, e.game.given.size(), "given");
+                e.game.full.add(p.uuid());
+                eq(DeliveryService.DirectOutcome.PENDING, e.service.giveDirect(p, k, "admin"), "full -> pending");
+                eq(1, e.game.given.size(), "nothing partial while full");
+                e.game.full.clear();
+                eq(1, e.service.claim(p, Platform.BEDROCK), "claim delivers it");
+                eq(0, e.service.claim(p, Platform.BEDROCK), "only once");
+                eq(2, e.game.given.size(), "total");
+            }
+        });
+        test("give: pending disabled -> FULL and nothing stored; corrupt kit -> CORRUPT", () -> {
+            try (Env e = new Env()) {
+                e.addKit("VipGuloso");
+                PlayerRef p = e.game.join("Elber", Platform.JAVA);
+                KitData k = e.kits.get("VipGuloso").orElseThrow();
+                e.opts = new DeliveryOptions(true, true, false, true, 5, ".");
+                e.game.full.add(p.uuid());
+                eq(DeliveryService.DirectOutcome.FULL, e.service.giveDirect(p, k, "admin"), "full");
+                eq(0, e.service.pendingCount(p, Platform.JAVA), "nothing stored");
+                e.game.full.clear();
+                e.game.corrupt = true;
+                eq(DeliveryService.DirectOutcome.CORRUPT, e.service.giveDirect(p, k, "admin"), "corrupt");
+                ok(e.game.given.isEmpty(), "nothing given");
+            }
+        });
+
         section("Duplicidade e timeout");
         test("same request_id twice: processed once, second call returns the original result", () -> {
             try (Env e = new Env()) {

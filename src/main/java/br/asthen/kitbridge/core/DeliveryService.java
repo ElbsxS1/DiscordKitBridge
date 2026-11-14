@@ -216,6 +216,48 @@ public final class DeliveryService implements RequestProcessor {
         future.complete(rec);
     }
 
+    // ------------------------------------------------------------ direct give by an admin (main thread)
+
+    public enum DirectOutcome { DELIVERED, PENDING, FULL, CORRUPT, OFFLINE, ERROR }
+
+    /**
+     * Gives a kit straight to a player on behalf of an admin (/dk give). Same rules as a Discord
+     * delivery: all or nothing, and a full inventory parks the whole kit as pending (when enabled).
+     */
+    public DirectOutcome giveDirect(PlayerRef player, KitData kit, String by) {
+        GiveResult r = game.give(player, kit);
+        switch (r) {
+            case DELIVERED -> {
+                game.tell(player, "Você recebeu o kit " + kit.name() + "!");
+                log.log("ADMIN", "action", "give", "by", by, "player", player.name(), "kit", kit.name(), "result", "delivered");
+                return DirectOutcome.DELIVERED;
+            }
+            case FULL -> {
+                if (!options.get().pendingIfInventoryFull()) {
+                    game.tell(player, "Seu inventário está cheio! Não foi possível entregar o kit " + kit.name() + ".");
+                    return DirectOutcome.FULL;
+                }
+                try {
+                    pending.add("uuid:" + player.uuid(), new PendingStore.Entry("admin-" + java.util.UUID.randomUUID(),
+                            kit.name(), System.currentTimeMillis(), kit));
+                } catch (IOException e) {
+                    log.log("ERROR", "action", "give", "error", e.getMessage());
+                    return DirectOutcome.ERROR;
+                }
+                game.tell(player, "Seu inventário está cheio! O kit " + kit.name()
+                        + " ficou guardado. Libere espaço e use /dk claim para recebê-lo.");
+                log.log("ADMIN", "action", "give", "by", by, "player", player.name(), "kit", kit.name(), "result", "pending");
+                return DirectOutcome.PENDING;
+            }
+            case CORRUPT -> {
+                return DirectOutcome.CORRUPT;
+            }
+            default -> {
+                return DirectOutcome.OFFLINE;
+            }
+        }
+    }
+
     // ------------------------------------------------------------ pending claims (main thread)
 
     /**

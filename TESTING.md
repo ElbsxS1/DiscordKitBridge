@@ -1,6 +1,6 @@
 # Roteiro de testes no servidor
 
-`./scripts/run-tests.sh` já cobre (58 testes automáticos) o cadastro e a persistência dos kits, a segurança,
+`./scripts/run-tests.sh` já cobre (60 testes automáticos) o cadastro e a persistência dos kits, a segurança,
 a duplicidade, o pipeline de entrega, a API HTTP e a conexão com o bot.
 
 A **camada fina do Paper** (ler a Shulker Box, mexer no inventário, Floodgate, comandos) só pode ser
@@ -29,7 +29,13 @@ verificada num servidor Paper 26.3 de verdade. Faça este roteiro uma vez e marq
 - [ ] **Reinicie o servidor.** `/dk list` e `/dk preview` continuam iguais.
 - [ ] Atualizar o `.jar` (reinício) mantém os kits.
 
-## Entrega (use o bot, ou `curl` no modo `server`)
+## Entrega direta (sem o bot)
+- [ ] `/dk give VipGuloso` entrega o kit a você; os itens são idênticos ao preview.
+- [ ] `/dk give VipGuloso OutroJogador` entrega ao outro jogador (e ele é avisado).
+- [ ] Com o inventário cheio: o kit **não** entra, fica pendente; libere espaço, `/dk claim` entrega o kit inteiro, uma vez.
+- [ ] Como jogador sem permissão: `/dk give` → sem permissão.
+
+## Entrega pelo bot (use o bot, ou `curl` no modo `server`)
 - [ ] Jogador **Java** online: kit entregue; os itens são idênticos ao preview.
 - [ ] Jogador **Bedrock** online (Geyser+Floodgate): kit entregue.
 - [ ] Pedir `bedrock` para um jogador Java com o mesmo nome base → `PLATFORM_MISMATCH`, nada entregue.

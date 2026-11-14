@@ -9,7 +9,7 @@ softdepend: [floodgate]
 commands:
   dk:
     description: Gerencia os kits do DiscordKitBridge
-    usage: /dk <create|delete|list|info|preview|toggle|claim|reload>
+    usage: /dk <create|delete|list|info|preview|give|toggle|claim|reload>
     aliases: [discordkit]
 
 permissions:
@@ -21,6 +21,7 @@ permissions:
       discordkitbridge.delete: true
       discordkitbridge.list: true
       discordkitbridge.preview: true
+      discordkitbridge.give: true
   discordkitbridge.create:
     description: Cadastrar kits com /dk create
     default: false
@@ -32,6 +33,9 @@ permissions:
     default: false
   discordkitbridge.preview:
     description: Visualizar kits com /dk preview
+    default: false
+  discordkitbridge.give:
+    description: Entregar kits diretamente com /dk give
     default: false
   discordkitbridge.claim:
     description: Receber kits pendentes com /dk claim

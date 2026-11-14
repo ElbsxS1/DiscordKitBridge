@@ -33,7 +33,7 @@ public final class KitCommand implements TabExecutor {
 
     private static final long CONFIRM_MS = 30_000L;
     private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm").withZone(ZoneId.systemDefault());
-    private static final List<String> SUBS = List.of("create", "delete", "list", "info", "preview", "toggle", "claim", "reload", "help");
+    private static final List<String> SUBS = List.of("create", "delete", "list", "info", "preview", "give", "toggle", "claim", "reload", "help");
 
     private record Confirmation(String kit, long expires) {
     }
@@ -54,6 +54,7 @@ public final class KitCommand implements TabExecutor {
             case "list" -> list(s);
             case "info" -> info(s, a);
             case "preview" -> preview(s, a);
+            case "give" -> give(s, a);
             case "toggle" -> toggle(s, a);
             case "claim" -> claim(s);
             case "reload" -> reload(s);
@@ -189,6 +190,41 @@ public final class KitCommand implements TabExecutor {
         p.openInventory(inv);
     }
 
+    private void give(CommandSender s, String[] a) {
+        if (!allowed(s, "discordkitbridge.give")) return;
+        if (a.length < 2) {
+            Msg.info(s, "Uso: /dk give <nome> [jogador]");
+            return;
+        }
+        Optional<KitData> kit = plugin.kits().get(a[1]);
+        if (kit.isEmpty()) {
+            Msg.error(s, "Kit não encontrado: " + a[1]);
+            return;
+        }
+        Player target;
+        if (a.length >= 3) {
+            target = Bukkit.getPlayerExact(a[2]);
+            if (target == null) {
+                Msg.error(s, "Jogador não está online: " + a[2]);
+                return;
+            }
+        } else if (s instanceof Player self) {
+            target = self;
+        } else {
+            Msg.info(s, "No console informe o jogador: /dk give <nome> <jogador>");
+            return;
+        }
+        PlayerRef ref = new PlayerRef(target.getUniqueId(), target.getName());
+        switch (plugin.service().giveDirect(ref, kit.get(), s.getName())) {
+            case DELIVERED -> Msg.ok(s, "Kit " + kit.get().name() + " entregue a " + target.getName() + ".");
+            case PENDING -> Msg.info(s, "O inventário de " + target.getName() + " está cheio: o kit ficou pendente (/dk claim).");
+            case FULL -> Msg.error(s, "O inventário de " + target.getName() + " está cheio. Nada foi entregue.");
+            case CORRUPT -> Msg.error(s, "Este kit está corrompido e não pôde ser entregue. Veja o console.");
+            case OFFLINE -> Msg.error(s, "Jogador não está online: " + target.getName());
+            case ERROR -> Msg.error(s, "Não foi possível guardar o kit pendente. Veja o console.");
+        }
+    }
+
     private void toggle(CommandSender s, String[] a) {
         if (!allowed(s, "discordkitbridge.admin")) return;
         if (a.length < 2) {
@@ -246,6 +282,7 @@ public final class KitCommand implements TabExecutor {
         Msg.plain(s, " /dk list           - lista os kits");
         Msg.plain(s, " /dk info <nome>    - detalhes de um kit");
         Msg.plain(s, " /dk preview <nome> - visualiza os itens");
+        Msg.plain(s, " /dk give <nome> [jogador] - entrega o kit (a você, se omitir o jogador)");
         Msg.plain(s, " /dk toggle <nome>  - ativa/desativa um kit");
         Msg.plain(s, " /dk claim          - recebe kits pendentes");
         Msg.plain(s, " /dk reload         - recarrega a configuração");
@@ -264,11 +301,13 @@ public final class KitCommand implements TabExecutor {
         List<String> out = new ArrayList<>();
         if (a.length == 1) {
             for (String sub : SUBS) if (sub.startsWith(a[0].toLowerCase(Locale.ROOT))) out.add(sub);
-        } else if (a.length == 2 && List.of("delete", "info", "preview", "toggle").contains(a[0].toLowerCase(Locale.ROOT))
+        } else if (a.length == 2 && List.of("delete", "info", "preview", "give", "toggle").contains(a[0].toLowerCase(Locale.ROOT))
                 && s.hasPermission("discordkitbridge.list")) {
             for (KitData k : plugin.kits().list()) if (k.name().toLowerCase(Locale.ROOT).startsWith(a[1].toLowerCase(Locale.ROOT))) out.add(k.name());
         } else if (a.length == 3 && a[0].equalsIgnoreCase("delete")) {
             out.add("confirm");
+        } else if (a.length == 3 && a[0].equalsIgnoreCase("give") && s.hasPermission("discordkitbridge.give")) {
+            for (Player p : Bukkit.getOnlinePlayers()) if (p.getName().toLowerCase(Locale.ROOT).startsWith(a[2].toLowerCase(Locale.ROOT))) out.add(p.getName());
         }
         return out;
     }
