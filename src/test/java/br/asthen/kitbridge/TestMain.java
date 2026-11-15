@@ -468,6 +468,103 @@ public final class TestMain {
             }
         });
 
+        section("Preço, ativar/desativar e caixa do kit");
+        test("Prices.parse: valid inputs become exact cents; invalid ones are rejected", () -> {
+            eq(3000L, br.asthen.kitbridge.util.Prices.parse("30").getAsLong(), "30");
+            eq(2990L, br.asthen.kitbridge.util.Prices.parse("29,90").getAsLong(), "29,90");
+            eq(2990L, br.asthen.kitbridge.util.Prices.parse("29.90").getAsLong(), "29.90");
+            eq(2950L, br.asthen.kitbridge.util.Prices.parse("29,5").getAsLong(), "29,5 means 29,50");
+            eq(1L, br.asthen.kitbridge.util.Prices.parse("0,01").getAsLong(), "one cent");
+            eq(99_999_999L, br.asthen.kitbridge.util.Prices.parse("999999,99").getAsLong(), "maximum");
+            for (String bad : List.of("", "0", "0,00", "-5", "abc", "29,999", "1.234,56", "1e3", "30 reais", "9999999", " ", "+5", "NaN"))
+                ok(br.asthen.kitbridge.util.Prices.parse(bad).isEmpty(), "should reject: " + bad);
+            ok(br.asthen.kitbridge.util.Prices.parse(null).isEmpty(), "null");
+            eq("R$ 29,90", br.asthen.kitbridge.util.Prices.format(2990), "format");
+            eq("R$ 30,05", br.asthen.kitbridge.util.Prices.format(3005), "format with leading zero cent");
+        });
+        test("price survives a restart; changing it never touches the items", () -> {
+            try (Env e = new Env()) {
+                e.addKit("Kit_Dima_Evo");
+                ok(!e.kits.get("Kit_Dima_Evo").orElseThrow().hasPrice(), "starts without price");
+                byte[] before = e.kits.get("Kit_Dima_Evo").orElseThrow().slots().get(0).data();
+                e.kits.setPrice("Kit_Dima_Evo", 3000);
+                e.kits.setPrice("kit_dima_evo", 4590); // raise the price later, case-insensitive name
+                KitManager again = new KitManager(new KitStorage(e.dir.resolve("kits"), m -> {}), () -> {});
+                again.reload();
+                KitData k = again.get("Kit_Dima_Evo").orElseThrow();
+                eq(4590L, k.priceCents(), "last price persisted");
+                ok(Arrays.equals(before, k.slots().get(0).data()), "items untouched");
+                eq(3, k.itemCount(), "same item count");
+                e.kits.setPrice("Kit_Dima_Evo", KitData.NO_PRICE);
+                ok(!e.kits.get("Kit_Dima_Evo").orElseThrow().hasPrice(), "price removed");
+                ok(e.kits.setPrice("Fantasma", 100).isEmpty(), "unknown kit is a no-op");
+            }
+        });
+        test("kits saved by an older version (no price, no box) still load", () -> {
+            Path d = Files.createTempDirectory(root, "old");
+            Map<String, Object> m = kit("Antigo").toMap();
+            ok(!m.containsKey("price_cents") && !m.containsKey("box"), "old format has neither field");
+            Files.writeString(d.resolve("Antigo.json"), Json.write(m));
+            KitData k = new KitStorage(d, x -> {}).loadAll().get("antigo");
+            eq(KitData.NO_PRICE, k.priceCents(), "no price");
+            eq(null, k.box(), "default box");
+            ok(k.enabled(), "enabled");
+        });
+        test("box colour round-trips; a malformed box value is ignored", () -> {
+            KitData blue = new KitData("Azul", 1L, "a", true, kit("x").slots(), 2990, "BLUE_SHULKER_BOX");
+            KitData back = KitData.fromMap(Json.parseObject(Json.write(blue.toMap())));
+            eq("BLUE_SHULKER_BOX", back.box(), "box");
+            eq(2990L, back.priceCents(), "price");
+            Map<String, Object> bad = blue.toMap();
+            bad.put("box", "../../etc/passwd");
+            eq(null, KitData.fromMap(bad).box(), "malformed box ignored");
+            bad.put("price_cents", -5L);
+            eq(KitData.NO_PRICE, KitData.fromMap(bad).priceCents(), "negative price ignored");
+        });
+        test("pending kit keeps its price and box (snapshot)", () -> {
+            Path d = Files.createTempDirectory(root, "pend");
+            PendingStore ps = new PendingStore(d);
+            KitData k = new KitData("Azul", 1L, "a", true, kit("x").slots(), 2990, "BLUE_SHULKER_BOX");
+            ps.add("uuid:x", new PendingStore.Entry("r1", "Azul", 1L, k));
+            KitData back = ps.list("uuid:x").get(0).kit();
+            eq("BLUE_SHULKER_BOX", back.box(), "box kept");
+            eq(2990L, back.priceCents(), "price kept");
+        });
+        test("enable/disable: a disabled kit is not delivered and comes back when enabled", () -> {
+            try (Env e = new Env()) {
+                e.addKit("VipGuloso");
+                e.game.join("Elber", Platform.BEDROCK);
+                e.kits.setEnabled("VipGuloso", false);
+                eq(Status.KIT_DISABLED, run(e, req("en-1", "Elber", Platform.BEDROCK, "VipGuloso")).status(), "disabled");
+                e.kits.setEnabled("VipGuloso", true);
+                eq(Status.KIT_DELIVERED, run(e, req("en-2", "Elber", Platform.BEDROCK, "VipGuloso")).status(), "enabled again");
+            }
+        });
+        try (Env e = new Env()) {
+            e.addKit("Pago");
+            e.kits.setPrice("Pago", 2990);
+            e.addKit("SemPreco");
+            e.addKit("Parado");
+            e.kits.setPrice("Parado", 1000);
+            e.kits.setEnabled("Parado", false);
+            ApiServer api = new ApiServer("127.0.0.1", 0, new Authentication(TOKEN), new RateLimiter(1000), e.service, e.log, 5, 4096);
+            api.start();
+            test("kit list for the bot carries price, status and for_sale (disabled/unpriced = unavailable)", () -> {
+                Http h = call("GET", "http://127.0.0.1:" + api.boundPort() + "/api/v1/kits", TOKEN, null);
+                Map<String, Map<?, ?>> byName = new HashMap<>();
+                for (Object o : (List<?>) h.json().get("kits")) byName.put((String) ((Map<?, ?>) o).get("name"), (Map<?, ?>) o);
+                eq(3, byName.size(), "three kits");
+                eq(2990L, byName.get("Pago").get("price_cents"), "price_cents");
+                eq(29.9, byName.get("Pago").get("price"), "price in reais");
+                eq(true, byName.get("Pago").get("for_sale"), "priced + enabled is for sale");
+                eq(null, byName.get("SemPreco").get("price"), "no price -> null");
+                eq(false, byName.get("SemPreco").get("for_sale"), "no price is not for sale");
+                eq(false, byName.get("Parado").get("enabled"), "disabled flag");
+                eq(false, byName.get("Parado").get("for_sale"), "disabled is unavailable");
+            });
+            api.stop();
+        }
+
         section("/dk give (entrega direta do admin)");
         test("give: delivered whole; full inventory parks the whole kit; claim then delivers once", () -> {
             try (Env e = new Env()) {

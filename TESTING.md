@@ -1,6 +1,6 @@
 # Roteiro de testes no servidor
 
-`./scripts/run-tests.sh` já cobre (60 testes automáticos) o cadastro e a persistência dos kits, a segurança,
+`./scripts/run-tests.sh` já cobre (67 testes automáticos) o cadastro e a persistência dos kits, a segurança,
 a duplicidade, o pipeline de entrega, a API HTTP e a conexão com o bot.
 
 A **camada fina do Paper** (ler a Shulker Box, mexer no inventário, Floodgate, comandos) só pode ser
@@ -29,8 +29,20 @@ verificada num servidor Paper 26.3 de verdade. Faça este roteiro uma vez e marq
 - [ ] **Reinicie o servidor.** `/dk list` e `/dk preview` continuam iguais.
 - [ ] Atualizar o `.jar` (reinício) mantém os kits.
 
+## Preço e ativar/desativar
+- [ ] `/dk price VipGuloso 29,90` → `Preço do kit VipGuloso: R$ 29,90.` e `/dk info VipGuloso` mostra o preço. `/dk list` mostra o preço de cada kit.
+- [ ] `/dk price VipGuloso 45` muda o preço **sem** apagar o kit; `/dk preview VipGuloso` continua igual.
+- [ ] Valores inválidos (`0`, `-5`, `abc`, `29,999`) → *Preço inválido*.
+- [ ] `/dk price VipGuloso remover` → kit sem preço (`/dk info` mostra *não definido*).
+- [ ] `/dk disable VipGuloso` → desativado; `/dk enable VipGuloso` → ativo. Repetir o mesmo comando avisa que já está nesse estado.
+- [ ] Reiniciar o servidor: preço e status continuam.
+- [ ] Jogador sem permissão: `/dk price`, `/dk enable`, `/dk disable` → sem permissão.
+
 ## Entrega direta (sem o bot)
-- [ ] `/dk give VipGuloso` entrega o kit a você; os itens são idênticos ao preview.
+- [ ] `/dk give VipGuloso` entrega **uma Shulker Box** com o nome do kit. Segure, coloque no chão e abra: os itens dentro são idênticos ao preview, cada um no seu slot.
+- [ ] A **cor** da Shulker Box entregue é a mesma da usada no `/dk create` (teste com uma azul, por exemplo).
+- [ ] Um kit cadastrado antes desta versão (sem cor guardada) sai em Shulker Box **roxa**.
+- [ ] Com **um único slot livre**, o kit entra. Com o inventário 100% cheio, não entra e fica pendente.
 - [ ] `/dk give VipGuloso OutroJogador` entrega ao outro jogador (e ele é avisado).
 - [ ] Com o inventário cheio: o kit **não** entra, fica pendente; libere espaço, `/dk claim` entrega o kit inteiro, uma vez.
 - [ ] Como jogador sem permissão: `/dk give` → sem permissão.

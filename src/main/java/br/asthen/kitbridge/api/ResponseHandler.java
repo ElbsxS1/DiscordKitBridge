@@ -66,6 +66,9 @@ public final class ResponseHandler {
             e.put("name", k.name());
             e.put("enabled", k.enabled());
             e.put("items", k.itemCount());
+            e.put("price", k.hasPrice() ? (Object) (k.priceCents() / 100.0) : null);
+            e.put("price_cents", k.hasPrice() ? (Object) k.priceCents() : null);
+            e.put("for_sale", k.enabled() && k.hasPrice()); // enabled AND priced; otherwise show as unavailable
             arr.add(e);
         }
         return arr;

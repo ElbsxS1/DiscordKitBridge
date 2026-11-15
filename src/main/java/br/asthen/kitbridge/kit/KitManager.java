@@ -76,4 +76,15 @@ public final class KitManager implements KitCatalog {
         onChange.run();
         return Optional.of(updated);
     }
+
+    /** @param cents the new price in cents, or {@link KitData#NO_PRICE} to take the kit off sale */
+    public synchronized Optional<KitData> setPrice(String name, long cents) throws IOException {
+        KitData k = kits.get(name.toLowerCase(Locale.ROOT));
+        if (k == null) return Optional.empty();
+        KitData updated = k.withPrice(cents);
+        storage.save(updated);
+        kits.put(name.toLowerCase(Locale.ROOT), updated);
+        onChange.run();
+        return Optional.of(updated);
+    }
 }

@@ -94,7 +94,9 @@ public final class BukkitGame implements GameAdapter {
 
         List<ItemStack> items;
         try {
-            items = KitSerializer.toItems(kit); // everything is decoded before anything is given
+            // everything is decoded and the box is built BEFORE anything is given. The player receives ONE
+            // item: a Shulker Box with the kit inside, so the kit needs a single free slot.
+            items = List.of(KitSerializer.toShulker(kit, KitSerializer.toItems(kit)));
         } catch (KitException e) {
             return GiveResult.CORRUPT;
         }
@@ -102,7 +104,7 @@ public final class BukkitGame implements GameAdapter {
         PlayerInventory inv = p.getInventory();
         ItemStack[] before = clone(inv.getStorageContents());
 
-        // 1) dry run on a scratch inventory: does the WHOLE kit fit?
+        // 1) dry run on a scratch inventory: does the box fit?
         Inventory scratch = Bukkit.createInventory(null, 36);
         scratch.setContents(clone(before));
         if (!scratch.addItem(cloneAll(items)).isEmpty()) return GiveResult.FULL;

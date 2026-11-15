@@ -24,7 +24,7 @@ Para **compilar**: JDK 25 e Maven (ou use o GitHub Actions deste repositório, q
 
 ## Instalação
 
-1. Baixe `DiscordKitBridge-1.1.1.jar` (aba *Actions* → último build → *Artifacts*, ou compile com `mvn package`).
+1. Baixe `DiscordKitBridge-1.2.0.jar` (aba *Actions* → último build → *Artifacts*, ou compile com `mvn package`).
 2. Coloque na pasta `plugins/` do servidor e reinicie.
 3. Abra `plugins/DiscordKitBridge/config.yml`:
    - O plugin gera um **token forte** em `bridge.secret` na primeira execução. Copie-o para o bot.
@@ -46,6 +46,21 @@ O kit fica em `plugins/DiscordKitBridge/kits/VipGuloso.json` e continua disponí
 
 Regras de nome: 1 a 32 caracteres, só letras, números, `_` e `-`. Nomes iguais (mesmo mudando maiúsculas) são recusados. Uma Shulker Box vazia é recusada.
 
+## Preço do kit
+
+O preço fica no **plugin** (uma única fonte da verdade) e o bot só lê:
+
+```
+/dk create Kit_Dima_Evo        cria o kit (sem preço)
+/dk price Kit_Dima_Evo 30      define R$ 30,00
+/dk price Kit_Dima_Evo 45,90   muda para R$ 45,90, sem apagar nem recriar nada
+/dk disable Kit_Dima_Evo       desativa: fica "indisponível" na loja
+```
+
+Regras: valor maior que zero, até `999999,99`, com vírgula ou ponto. Kit **sem preço não está à venda**.
+A lista de kits que o bot recebe traz, para cada kit: `name`, `enabled`, `items`, `price` (reais), `price_cents`
+(centavos, valor exato) e `for_sale` (`true` só se estiver ativo **e** com preço). Desativado ou sem preço = indisponível.
+
 ## Comandos e permissões
 
 | Comando | Permissão | O que faz |
@@ -56,11 +71,13 @@ Regras de nome: 1 a 32 caracteres, só letras, números, `_` e `-`. Nomes iguais
 | `/dk info <nome>` | `discordkitbridge.list` | Nome, nº de itens, data de cadastro, status |
 | `/dk preview <nome>` | `discordkitbridge.preview` | Abre uma janela só de leitura com os itens |
 | `/dk give <nome> [jogador]` | `discordkitbridge.give` | Entrega o kit a você (ou ao jogador indicado). Inventário cheio → fica pendente |
-| `/dk toggle <nome>` | `discordkitbridge.admin` | Ativa/desativa um kit (desativado não é entregue) |
+| `/dk price <nome> <valor>` | `discordkitbridge.price` | Define o preço em reais (`30`, `29,90` ou `29.90`). `remover` tira o kit da venda |
+| `/dk enable <nome>` / `/dk disable <nome>` | `discordkitbridge.admin` | Ativa / desativa um kit. Desativado não é entregue e aparece como indisponível na loja |
+| `/dk toggle <nome>` | `discordkitbridge.admin` | Alterna entre ativo e desativado |
 | `/dk claim` | `discordkitbridge.claim` (todos) | Recebe kits pendentes (inventário cheio) |
 | `/dk reload` | `discordkitbridge.admin` | Recarrega config e kits |
 
-`discordkitbridge.admin` (padrão: operadores) inclui create, delete, list, preview e give. Jogadores comuns só têm `claim`.
+`discordkitbridge.admin` (padrão: operadores) inclui create, delete, list, preview, give e price. Jogadores comuns só têm `claim`.
 
 ## Como a entrega funciona
 
@@ -71,10 +88,13 @@ Regras de nome: 1 a 32 caracteres, só letras, números, `_` e `-`. Nomes iguais
    - Sem Floodgate instalado, pedidos `bedrock` são recusados (`PLATFORM_UNVERIFIABLE`), a menos que você ligue `platform.allow-unverified-bedrock` (inseguro: um jogador Java poderia usar um nome com `.`).
 3. O jogador precisa estar online (`kits.require-online`).
 4. O kit é carregado e **todos os itens são lidos antes de entregar qualquer um**.
-5. **Entrega tudo ou nada**: o plugin testa se o kit inteiro cabe. Se couber, entrega. Se não couber:
+5. **O jogador recebe uma Shulker Box com os itens dentro**, na mesma cor da Shulker Box usada no `/dk create`
+   (kits cadastrados em versões antigas, sem cor guardada, saem na roxa padrão). A caixa leva o nome do kit e cada
+   item fica no mesmo slot do original. Como é **um único item**, o kit precisa de **um slot livre** no inventário.
+6. **Entrega tudo ou nada**: o plugin testa se a caixa cabe. Se couber, entrega. Se não couber:
    - `pending-if-inventory-full: true` → guarda o kit **inteiro** como pendente, avisa o jogador, e ele recebe com `/dk claim` (ou ao entrar). Nunca entrega só uma parte.
    - `false` → recusa (`INVENTORY_FULL`).
-6. O kit pendente é uma **cópia**: apagar ou editar o kit depois não tira o que o jogador já comprou.
+7. O kit pendente é uma **cópia**: apagar ou editar o kit depois não tira o que o jogador já comprou.
 
 Todo acesso a inventário acontece na **thread principal** do servidor. A comunicação com o Discord roda fora dela, então o servidor não trava.
 
@@ -221,8 +241,8 @@ Faça backup de `kits/` e `data/`.
 ## Desenvolvimento
 
 ```bash
-./scripts/run-tests.sh   # 60 testes, só JDK (sem servidor, sem Maven)
-mvn package              # gera target/DiscordKitBridge-1.1.1.jar (JDK 25)
+./scripts/run-tests.sh   # 67 testes, só JDK (sem servidor, sem Maven)
+mvn package              # gera target/DiscordKitBridge-1.2.0.jar (JDK 25)
 ```
 
 Veja `TESTING.md` para o roteiro de testes dentro do jogo.

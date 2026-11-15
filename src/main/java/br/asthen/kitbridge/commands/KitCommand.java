@@ -8,6 +8,7 @@ import br.asthen.kitbridge.core.PlayerRef;
 import br.asthen.kitbridge.kit.KitData;
 import br.asthen.kitbridge.kit.KitManager.KitException;
 import br.asthen.kitbridge.security.Validators;
+import br.asthen.kitbridge.util.Prices;
 import net.kyori.adventure.text.Component;
 import org.bukkit.Bukkit;
 import org.bukkit.command.Command;
@@ -33,19 +34,22 @@ public final class KitCommand implements TabExecutor {
 
     private static final long CONFIRM_MS = 30_000L;
     private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm").withZone(ZoneId.systemDefault());
-    private static final List<String> SUBS = List.of("create", "delete", "list", "info", "preview", "give", "toggle", "claim", "reload", "help");
+    private static final List<String> SUBS = List.of("create", "delete", "list", "info", "preview", "give", "price", "enable", "disable", "toggle", "claim", "reload", "help");
 
     /** Permission required by each subcommand; used by help and tab completion so players only see what they can run. */
-    private static final Map<String, String> PERMS = Map.of(
-            "create", "discordkitbridge.create",
-            "delete", "discordkitbridge.delete",
-            "list", "discordkitbridge.list",
-            "info", "discordkitbridge.list",
-            "preview", "discordkitbridge.preview",
-            "give", "discordkitbridge.give",
-            "toggle", "discordkitbridge.admin",
-            "claim", "discordkitbridge.claim",
-            "reload", "discordkitbridge.admin");
+    private static final Map<String, String> PERMS = Map.ofEntries(
+            Map.entry("create", "discordkitbridge.create"),
+            Map.entry("delete", "discordkitbridge.delete"),
+            Map.entry("list", "discordkitbridge.list"),
+            Map.entry("info", "discordkitbridge.list"),
+            Map.entry("preview", "discordkitbridge.preview"),
+            Map.entry("give", "discordkitbridge.give"),
+            Map.entry("price", "discordkitbridge.price"),
+            Map.entry("enable", "discordkitbridge.admin"),
+            Map.entry("disable", "discordkitbridge.admin"),
+            Map.entry("toggle", "discordkitbridge.admin"),
+            Map.entry("claim", "discordkitbridge.claim"),
+            Map.entry("reload", "discordkitbridge.admin"));
 
     private record Confirmation(String kit, long expires) {
     }
@@ -67,6 +71,9 @@ public final class KitCommand implements TabExecutor {
             case "info" -> info(s, a);
             case "preview" -> preview(s, a);
             case "give" -> give(s, a);
+            case "price" -> price(s, a);
+            case "enable" -> setEnabled(s, a, true);
+            case "disable" -> setEnabled(s, a, false);
             case "toggle" -> toggle(s, a);
             case "claim" -> claim(s);
             case "reload" -> reload(s);
@@ -147,7 +154,8 @@ public final class KitCommand implements TabExecutor {
         }
         Msg.ok(s, kits.size() + " kit(s) cadastrado(s):");
         for (KitData k : kits) {
-            Msg.plain(s, " - " + k.name() + " (" + k.itemCount() + " itens)" + (k.enabled() ? "" : " [desativado]"));
+            Msg.plain(s, " - " + k.name() + " (" + k.itemCount() + " itens) "
+                    + (k.hasPrice() ? Prices.format(k.priceCents()) : "sem preço") + (k.enabled() ? "" : " [desativado]"));
         }
     }
 
@@ -166,6 +174,7 @@ public final class KitCommand implements TabExecutor {
         Msg.ok(s, "Kit " + k.name());
         Msg.plain(s, " Itens: " + k.itemCount());
         Msg.plain(s, " Cadastrado em: " + DATE.format(Instant.ofEpochMilli(k.createdAt())) + " por " + k.createdBy());
+        Msg.plain(s, " Preço: " + (k.hasPrice() ? Prices.format(k.priceCents()) : "não definido (fora da loja)"));
         Msg.plain(s, " Status: " + (k.enabled() ? "ativo" : "desativado"));
     }
 
@@ -237,6 +246,68 @@ public final class KitCommand implements TabExecutor {
         }
     }
 
+    private void price(CommandSender s, String[] a) {
+        if (!allowed(s, "discordkitbridge.price")) return;
+        if (a.length < 3) {
+            Msg.info(s, "Uso: /dk price <nome> <valor>   (ex.: /dk price Kit_Dima_Evo 29,90)  ou  /dk price <nome> remover");
+            return;
+        }
+        Optional<KitData> kit = plugin.kits().get(a[1]);
+        if (kit.isEmpty()) {
+            Msg.error(s, "Kit não encontrado: " + a[1]);
+            return;
+        }
+        String name = kit.get().name();
+        long cents;
+        if (a[2].equalsIgnoreCase("remover") || a[2].equalsIgnoreCase("remove") || a[2].equalsIgnoreCase("none")) {
+            cents = KitData.NO_PRICE;
+        } else {
+            var parsed = Prices.parse(a[2]);
+            if (parsed.isEmpty()) {
+                Msg.error(s, "Preço inválido. Use um valor maior que zero, como 30 ou 29,90 (no máximo 999999,99).");
+                return;
+            }
+            cents = parsed.getAsLong();
+        }
+        try {
+            plugin.kits().setPrice(name, cents);
+            plugin.logger().log("ADMIN", "action", "price", "by", s.getName(), "kit", name,
+                    "price", cents > 0 ? Prices.format(cents) : "none");
+            if (cents > 0) Msg.ok(s, "Preço do kit " + name + ": " + Prices.format(cents) + ".");
+            else Msg.ok(s, "Kit " + name + " sem preço: não será vendido na loja.");
+        } catch (IOException e) {
+            Msg.error(s, "Não foi possível salvar. Veja o console.");
+            plugin.getLogger().severe("Falha ao salvar o preço do kit: " + e.getMessage());
+        }
+    }
+
+    private void setEnabled(CommandSender s, String[] a, boolean enable) {
+        if (!allowed(s, "discordkitbridge.admin")) return;
+        String cmd = enable ? "enable" : "disable";
+        if (a.length < 2) {
+            Msg.info(s, "Uso: /dk " + cmd + " <nome>");
+            return;
+        }
+        Optional<KitData> kit = plugin.kits().get(a[1]);
+        if (kit.isEmpty()) {
+            Msg.error(s, "Kit não encontrado: " + a[1]);
+            return;
+        }
+        String name = kit.get().name();
+        if (kit.get().enabled() == enable) {
+            Msg.info(s, "O kit " + name + " já está " + (enable ? "ativo." : "desativado."));
+            return;
+        }
+        try {
+            plugin.kits().setEnabled(name, enable);
+            plugin.logger().log("ADMIN", "action", cmd, "by", s.getName(), "kit", name);
+            Msg.ok(s, "Kit " + name + (enable ? " ativado." : " desativado (aparece como indisponível na loja)."));
+        } catch (IOException e) {
+            Msg.error(s, "Não foi possível salvar. Veja o console.");
+            plugin.getLogger().severe("Falha ao atualizar o kit: " + e.getMessage());
+        }
+    }
+
     private void toggle(CommandSender s, String[] a) {
         if (!allowed(s, "discordkitbridge.admin")) return;
         if (a.length < 2) {
@@ -295,7 +366,10 @@ public final class KitCommand implements TabExecutor {
                 {"info", " /dk info <nome>    - detalhes de um kit"},
                 {"preview", " /dk preview <nome> - visualiza os itens"},
                 {"give", " /dk give <nome> [jogador] - entrega o kit (a você, se omitir o jogador)"},
-                {"toggle", " /dk toggle <nome>  - ativa/desativa um kit"},
+                {"price", " /dk price <nome> <valor> - define o preço (ex.: 29,90)"},
+                {"enable", " /dk enable <nome>  - ativa um kit"},
+                {"disable", " /dk disable <nome> - desativa um kit (fica indisponível na loja)"},
+                {"toggle", " /dk toggle <nome>  - alterna ativo/desativado"},
                 {"claim", " /dk claim          - recebe kits pendentes"},
                 {"reload", " /dk reload         - recarrega a configuração"},
         };
@@ -321,7 +395,7 @@ public final class KitCommand implements TabExecutor {
                 String perm = PERMS.get(sub);
                 if (sub.startsWith(a[0].toLowerCase(Locale.ROOT)) && (perm == null || s.hasPermission(perm))) out.add(sub);
             }
-        } else if (a.length == 2 && List.of("delete", "info", "preview", "give", "toggle").contains(a[0].toLowerCase(Locale.ROOT))
+        } else if (a.length == 2 && List.of("delete", "info", "preview", "give", "price", "enable", "disable", "toggle").contains(a[0].toLowerCase(Locale.ROOT))
                 && s.hasPermission("discordkitbridge.list")) {
             for (KitData k : plugin.kits().list()) if (k.name().toLowerCase(Locale.ROOT).startsWith(a[1].toLowerCase(Locale.ROOT))) out.add(k.name());
         } else if (a.length == 3 && a[0].equalsIgnoreCase("delete")) {
