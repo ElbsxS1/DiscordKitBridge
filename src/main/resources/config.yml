@@ -17,9 +17,18 @@ bridge:
   poll:
     # Endereço público do seu bot (onde roda bot-integration/asthen-bridge.js). Use HTTPS.
     url: "https://SEU-BOT.exemplo.com"
+    # Usado no modo tradicional (long-poll.enabled: false) e como pausa mínima se o bot responder vazio na hora.
     interval-seconds: 3
     max-per-poll: 5
-    http-timeout: 10
+    connect-timeout: 10
+    # Precisa ser MAIOR que long-poll.wait-seconds (o plugin corrige sozinho se não for).
+    http-timeout: 35
+    long-poll:
+      # true = o bot segura a consulta até chegar um pedido (entrega quase instantânea, bem menos consultas vazias).
+      # Exige BOT-ASTHEN 2.12.0 ou mais novo. false = consulta a cada interval-seconds (modo antigo).
+      enabled: true
+      # Quanto o bot pode segurar cada consulta (1 a 25 segundos; o bot limita em 25).
+      wait-seconds: 20
 
   server:
     # 127.0.0.1 = só a própria máquina. Para outro endereço use firewall e TLS (proxy reverso).

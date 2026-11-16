@@ -34,7 +34,7 @@ public final class KitCommand implements TabExecutor {
 
     private static final long CONFIRM_MS = 30_000L;
     private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm").withZone(ZoneId.systemDefault());
-    private static final List<String> SUBS = List.of("create", "delete", "list", "info", "preview", "give", "price", "enable", "disable", "toggle", "claim", "reload", "help");
+    private static final List<String> SUBS = List.of("create", "delete", "list", "info", "preview", "give", "price", "enable", "disable", "toggle", "claim", "pending", "reload", "help");
 
     /** Permission required by each subcommand; used by help and tab completion so players only see what they can run. */
     private static final Map<String, String> PERMS = Map.ofEntries(
@@ -45,11 +45,12 @@ public final class KitCommand implements TabExecutor {
             Map.entry("preview", "discordkitbridge.preview"),
             Map.entry("give", "discordkitbridge.give"),
             Map.entry("price", "discordkitbridge.price"),
-            Map.entry("enable", "discordkitbridge.admin"),
-            Map.entry("disable", "discordkitbridge.admin"),
-            Map.entry("toggle", "discordkitbridge.admin"),
+            Map.entry("enable", "discordkitbridge.toggle"),
+            Map.entry("disable", "discordkitbridge.toggle"),
+            Map.entry("toggle", "discordkitbridge.toggle"),
             Map.entry("claim", "discordkitbridge.claim"),
-            Map.entry("reload", "discordkitbridge.admin"));
+            Map.entry("reload", "discordkitbridge.reload"),
+            Map.entry("pending", "discordkitbridge.pending"));
 
     private record Confirmation(String kit, long expires) {
     }
@@ -76,6 +77,7 @@ public final class KitCommand implements TabExecutor {
             case "disable" -> setEnabled(s, a, false);
             case "toggle" -> toggle(s, a);
             case "claim" -> claim(s);
+            case "pending" -> pending(s, a);
             case "reload" -> reload(s);
             default -> help(s);
         }
@@ -282,7 +284,7 @@ public final class KitCommand implements TabExecutor {
     }
 
     private void setEnabled(CommandSender s, String[] a, boolean enable) {
-        if (!allowed(s, "discordkitbridge.admin")) return;
+        if (!allowed(s, "discordkitbridge.toggle")) return;
         String cmd = enable ? "enable" : "disable";
         if (a.length < 2) {
             Msg.info(s, "Uso: /dk " + cmd + " <nome>");
@@ -309,7 +311,7 @@ public final class KitCommand implements TabExecutor {
     }
 
     private void toggle(CommandSender s, String[] a) {
-        if (!allowed(s, "discordkitbridge.admin")) return;
+        if (!allowed(s, "discordkitbridge.toggle")) return;
         if (a.length < 2) {
             Msg.info(s, "Uso: /dk toggle <nome>");
             return;
@@ -347,8 +349,47 @@ public final class KitCommand implements TabExecutor {
         plugin.logger().log("CLAIM", "player", p.getName(), "kits", n);
     }
 
+    /** /dk pending [resolve <request_id> <delivered|retry>] */
+    private void pending(CommandSender s, String[] a) {
+        if (!allowed(s, "discordkitbridge.pending")) return;
+        if (a.length >= 2 && a[1].equalsIgnoreCase("resolve")) {
+            if (a.length < 4 || !(a[3].equalsIgnoreCase("delivered") || a[3].equalsIgnoreCase("retry"))) {
+                Msg.info(s, "Uso: /dk pending resolve <request_id> <delivered|retry>");
+                return;
+            }
+            try {
+                boolean delivered = a[3].equalsIgnoreCase("delivered");
+                if (plugin.service().resolve(a[2], delivered)) {
+                    plugin.logger().log("ADMIN", "action", "pending-resolve", "by", s.getName(), "request_id", a[2], "result", a[3].toLowerCase(Locale.ROOT));
+                    Msg.ok(s, delivered ? "Marcada como entregue." : "Será tentada de novo na próxima entrega (/dk claim do jogador).");
+                } else {
+                    Msg.error(s, "Nenhuma pendência com esse request_id.");
+                }
+            } catch (java.io.IOException e) {
+                Msg.error(s, "Não foi possível gravar a decisão: " + e.getMessage());
+            }
+            return;
+        }
+        var list = plugin.service().needsAttention();
+        var issues = plugin.pendingStore().issues();
+        var orphans = plugin.service().orphanedPending();
+        if (list.isEmpty() && issues.isEmpty() && orphans.isEmpty()) {
+            Msg.ok(s, "Nenhuma pendência precisa de atenção.");
+        }
+        for (var e : list) {
+            Msg.plain(s, " " + e.requestId() + "  " + e.kitName() + "  [" + e.state() + "]" + (e.note() != null ? "  " + e.note() : ""));
+        }
+        for (String i : issues) Msg.plain(s, " ! " + i);
+        for (var r : orphans) {
+            Msg.plain(s, " ? " + r.requestId() + "  " + r.kit() + " para " + r.player()
+                    + ": o bot foi avisado de KIT_PENDING mas não há pendência guardada. Confira e use /dk give se preciso.");
+        }
+        if (!list.isEmpty()) Msg.info(s, "Confira o inventário do jogador e use /dk pending resolve <request_id> delivered|retry.");
+        Msg.plain(s, " Outbox: " + plugin.outbox().size() + " item(ns) aguardando o bot, " + plugin.outbox().deadCount() + " recusado(s).");
+    }
+
     private void reload(CommandSender s) {
-        if (!allowed(s, "discordkitbridge.admin")) return;
+        if (!allowed(s, "discordkitbridge.reload")) return;
         try {
             int n = plugin.reloadAll();
             plugin.logger().log("ADMIN", "action", "reload", "by", s.getName());
@@ -371,6 +412,7 @@ public final class KitCommand implements TabExecutor {
                 {"disable", " /dk disable <nome> - desativa um kit (fica indisponível na loja)"},
                 {"toggle", " /dk toggle <nome>  - alterna ativo/desativado"},
                 {"claim", " /dk claim          - recebe kits pendentes"},
+                {"pending", " /dk pending       - entregas que precisam de atenção (resolve <id> delivered|retry)"},
                 {"reload", " /dk reload         - recarrega a configuração"},
         };
         Msg.ok(s, "Comandos:");
@@ -396,9 +438,14 @@ public final class KitCommand implements TabExecutor {
                 if (sub.startsWith(a[0].toLowerCase(Locale.ROOT)) && (perm == null || s.hasPermission(perm))) out.add(sub);
             }
         } else if (a.length == 2 && List.of("delete", "info", "preview", "give", "price", "enable", "disable", "toggle").contains(a[0].toLowerCase(Locale.ROOT))
-                && s.hasPermission("discordkitbridge.list")) {
+                && s.hasPermission(PERMS.get(a[0].toLowerCase(Locale.ROOT)))) {
             for (KitData k : plugin.kits().list()) if (k.name().toLowerCase(Locale.ROOT).startsWith(a[1].toLowerCase(Locale.ROOT))) out.add(k.name());
-        } else if (a.length == 3 && a[0].equalsIgnoreCase("delete")) {
+        } else if (a.length == 2 && a[0].equalsIgnoreCase("pending") && s.hasPermission("discordkitbridge.pending")) {
+            if ("resolve".startsWith(a[1].toLowerCase(Locale.ROOT))) out.add("resolve");
+        } else if (a.length == 4 && a[0].equalsIgnoreCase("pending") && a[1].equalsIgnoreCase("resolve")
+                && s.hasPermission("discordkitbridge.pending")) {
+            for (String o : List.of("delivered", "retry")) if (o.startsWith(a[3].toLowerCase(Locale.ROOT))) out.add(o);
+        } else if (a.length == 3 && a[0].equalsIgnoreCase("delete") && s.hasPermission("discordkitbridge.delete")) {
             out.add("confirm");
         } else if (a.length == 3 && a[0].equalsIgnoreCase("give") && s.hasPermission("discordkitbridge.give")) {
             for (Player p : Bukkit.getOnlinePlayers()) if (p.getName().toLowerCase(Locale.ROOT).startsWith(a[2].toLowerCase(Locale.ROOT))) out.add(p.getName());

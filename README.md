@@ -24,7 +24,7 @@ Para **compilar**: JDK 25 e Maven (ou use o GitHub Actions deste repositório, q
 
 ## Instalação
 
-1. Baixe `DiscordKitBridge-1.2.0.jar` (aba *Actions* → último build → *Artifacts*, ou compile com `mvn package`).
+1. Baixe `DiscordKitBridge-1.3.0.jar` (aba *Actions* → último build → *Artifacts*, ou compile com `mvn package`).
 2. Coloque na pasta `plugins/` do servidor e reinicie.
 3. Abra `plugins/DiscordKitBridge/config.yml`:
    - O plugin gera um **token forte** em `bridge.secret` na primeira execução. Copie-o para o bot.
@@ -72,12 +72,16 @@ A lista de kits que o bot recebe traz, para cada kit: `name`, `enabled`, `items`
 | `/dk preview <nome>` | `discordkitbridge.preview` | Abre uma janela só de leitura com os itens |
 | `/dk give <nome> [jogador]` | `discordkitbridge.give` | Entrega o kit a você (ou ao jogador indicado). Inventário cheio → fica pendente |
 | `/dk price <nome> <valor>` | `discordkitbridge.price` | Define o preço em reais (`30`, `29,90` ou `29.90`). `remover` tira o kit da venda |
-| `/dk enable <nome>` / `/dk disable <nome>` | `discordkitbridge.admin` | Ativa / desativa um kit. Desativado não é entregue e aparece como indisponível na loja |
-| `/dk toggle <nome>` | `discordkitbridge.admin` | Alterna entre ativo e desativado |
+| `/dk enable <nome>` / `/dk disable <nome>` | `discordkitbridge.toggle` | Ativa / desativa um kit. Desativado não é entregue e aparece como indisponível na loja |
+| `/dk toggle <nome>` | `discordkitbridge.toggle` | Alterna entre ativo e desativado |
 | `/dk claim` | `discordkitbridge.claim` (todos) | Recebe kits pendentes (inventário cheio) |
-| `/dk reload` | `discordkitbridge.admin` | Recarrega config e kits |
+| `/dk pending` | `discordkitbridge.pending` | Lista entregas que precisam de atenção. `/dk pending resolve <request_id> <delivered\|retry>` decide uma entrega interrompida |
+| `/dk reload` | `discordkitbridge.reload` | Recarrega config e kits |
 
-`discordkitbridge.admin` (padrão: operadores) inclui create, delete, list, preview, give e price. Jogadores comuns só têm `claim`.
+`discordkitbridge.admin` (padrão: operadores) inclui create, delete, list, preview, give, price, toggle, reload e pending.
+Jogadores comuns só têm `claim`. **Cada comando confere a própria permissão**, inclusive as sugestões do Tab: quem só
+tem `discordkitbridge.price` não vê nem completa `/dk delete`. `/dk` sozinho mostra só os comandos que você pode usar.
+Detalhes e migração: [docs/MIGRATION-1.3.0.md](docs/MIGRATION-1.3.0.md).
 
 ## Como a entrega funciona
 
@@ -92,11 +96,21 @@ A lista de kits que o bot recebe traz, para cada kit: `name`, `enabled`, `items`
    (kits cadastrados em versões antigas, sem cor guardada, saem na roxa padrão). A caixa leva o nome do kit e cada
    item fica no mesmo slot do original. Como é **um único item**, o kit precisa de **um slot livre** no inventário.
 6. **Entrega tudo ou nada**: o plugin testa se a caixa cabe. Se couber, entrega. Se não couber:
-   - `pending-if-inventory-full: true` → guarda o kit **inteiro** como pendente, avisa o jogador, e ele recebe com `/dk claim` (ou ao entrar). Nunca entrega só uma parte.
+   - `pending-if-inventory-full: true` → guarda o kit **inteiro** como pendente, avisa o jogador, e ele recebe **sozinho assim que liberar espaço** (auto-claim, 1.3.0), com `/dk claim` ou ao entrar. Nunca entrega só uma parte.
    - `false` → recusa (`INVENTORY_FULL`).
 7. O kit pendente é uma **cópia**: apagar ou editar o kit depois não tira o que o jogador já comprou.
 
 Todo acesso a inventário acontece na **thread principal** do servidor. A comunicação com o Discord roda fora dela, então o servidor não trava.
+
+### Pendências, auto-claim e recuperação (1.3.0)
+
+- Cada pendência tem um **estado salvo em disco**: `PENDING`, `CLAIMING`, `DELIVERED`, `RETRY`, `ERROR`.
+- Arquivo ilegível **nunca vira "lista vazia"**: é restaurado do backup ou guardado como `.corrupt-<hora>` e o problema aparece no console e em `/dk pending`.
+- Se o servidor cair no meio de uma entrega (`CLAIMING`), o plugin **não entrega de novo sozinho**; o admin confere o inventário e decide com `/dk pending resolve`.
+- Jogador offline (`kits.require-online: false`): a pendência é ligada ao UUID quando ele entra (por plataforma, Java e Bedrock não se misturam).
+- **Auto-claim**: ao fechar um inventário, soltar um item ou clicar no inventário, se houver kit pendente o plugin tenta de novo no tick seguinte (no máximo uma tentativa por vez, com intervalo, e o aviso "inventário cheio" no máximo a cada 30 s).
+- Quando um kit pendente é entregue, o plugin avisa o bot (`KIT_PENDING` → `KIT_DELIVERED`) pela **outbox** persistente. O bot precisa do endpoint descrito em [docs/BOT-INTEGRATION-1.3.0.md](docs/BOT-INTEGRATION-1.3.0.md).
+- Mais: [docs/PENDING-AND-RECOVERY.md](docs/PENDING-AND-RECOVERY.md), [docs/LONG-POLLING.md](docs/LONG-POLLING.md), [docs/OUTBOX.md](docs/OUTBOX.md).
 
 ### Sem entrega duplicada
 
@@ -162,8 +176,12 @@ Sem HTTPS o token trafega em texto puro; o plugin avisa no console se a URL for 
 ```yaml
 bridge:
   mode: "poll"
+  secret: "O_MESMO_VALOR_DO_DKB_SECRET_DO_BOT"   # só o valor, sem "DKB_SECRET="
   poll:
-    url: "https://seu-bot.exemplo.com"
+    url: "https://seu-bot.exemplo.com"           # sem barra no final e sem /plugin/v1
+    long-poll:
+      enabled: true      # exige BOT-ASTHEN 2.12.0+; false = consulta a cada interval-seconds
+      wait-seconds: 20
 ```
 
 ## API REST (modo `server`)
@@ -209,7 +227,7 @@ Também finais: `KIT_PENDING` (inventário cheio, guardado), e erros: `PLAYER_OF
 ## Logs
 
 `plugins/DiscordKitBridge/logs/AAAA-MM-DD.log`, um arquivo por dia (apagados após `logs.retention-days`).
-Eventos: `REQUEST_RECEIVED`, `PLAYER_IDENTIFIED`, `DELIVERED`, `PENDING`, `FAILED`, `DUPLICATE`, `AUTH_ERROR`, `RATE_LIMITED`, `INVALID_REQUEST`, `BOT_UNREACHABLE`, `ADMIN` (create/delete/reload/toggle), `CLAIM`.
+Eventos: `REQUEST_RECEIVED`, `PLAYER_IDENTIFIED`, `DELIVERED`, `PENDING`, `FAILED`, `DUPLICATE`, `AUTH_ERROR`, `RATE_LIMITED`, `INVALID_REQUEST`, `BOT_UNREACHABLE`, `OUTBOX_REJECTED`, `EVENTS_UNSUPPORTED`, `RECONCILED`, `ADMIN` (create/delete/reload/toggle), `CLAIM`.
 
 ## Arquivos de dados
 
@@ -218,7 +236,8 @@ plugins/DiscordKitBridge/
   config.yml
   kits/VipGuloso.json        um arquivo por kit
   data/requests.json         histórico (anti-duplicação)
-  data/pending/*.json        kits pendentes por jogador
+  data/pending/*.json        kits pendentes por jogador (+ .bak; .corrupt-* se algo estragou)
+  data/outbox.json           resultados/atualizações ainda não confirmados pelo bot
   logs/2026-11-13.log
 ```
 
@@ -241,8 +260,8 @@ Faça backup de `kits/` e `data/`.
 ## Desenvolvimento
 
 ```bash
-./scripts/run-tests.sh   # 67 testes, só JDK (sem servidor, sem Maven)
-mvn package              # gera target/DiscordKitBridge-1.2.0.jar (JDK 25)
+./scripts/run-tests.sh   # 100 testes, só JDK (sem servidor, sem Maven)
+mvn package              # gera target/DiscordKitBridge-1.3.0.jar (JDK 25)
 ```
 
 Veja `TESTING.md` para o roteiro de testes dentro do jogo.

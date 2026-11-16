@@ -67,8 +67,21 @@ public final class RequestStore implements AutoCloseable {
                 records.put(r.requestId(), r);
             }
         } catch (Exception e) {
-            warn.accept("requests.json could not be read (" + e.getMessage() + "); starting with an empty history");
+            // never overwrite an unreadable history: keep it for a person and say so
+            Path aside = file.resolveSibling(file.getFileName() + ".corrupt-" + clock.getAsLong());
+            try {
+                Files.move(file, aside, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                warn.accept("requests.json could not be read (" + e.getMessage() + "); it was kept as " + aside.getFileName()
+                        + " and a new history was started. Repeated requests older than this restart cannot be recognised.");
+            } catch (IOException moveFail) {
+                warn.accept("requests.json could not be read (" + e.getMessage() + ") and could not be moved aside: " + moveFail.getMessage());
+            }
         }
+    }
+
+    /** A snapshot of every known request (for reconciliation at startup). */
+    public List<RequestRecord> all() {
+        return new ArrayList<>(records.values());
     }
 
     /** Atomically registers a new request, or returns the existing one. */

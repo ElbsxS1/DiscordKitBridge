@@ -1,6 +1,6 @@
 # Roteiro de testes no servidor
 
-`./scripts/run-tests.sh` já cobre (67 testes automáticos) o cadastro e a persistência dos kits, a segurança,
+`./scripts/run-tests.sh` já cobre (100 testes automáticos) o cadastro e a persistência dos kits, a segurança,
 a duplicidade, o pipeline de entrega, a API HTTP e a conexão com o bot.
 
 A **camada fina do Paper** (ler a Shulker Box, mexer no inventário, Floodgate, comandos) só pode ser
@@ -68,3 +68,20 @@ verificada num servidor Paper 26.3 de verdade. Faça este roteiro uma vez e marq
 - [ ] `/dk reload` recarrega sem erro.
 - [ ] `logs/AAAA-MM-DD.log` registra recebido, identificado, entregue/falha e operações administrativas.
 - [ ] Sem lag perceptível no servidor durante as consultas (TPS normal).
+
+## Novidades da 1.3.0 (testar no servidor Paper real)
+
+Os testes automáticos usam um jogo e um bot **simulados**: provam a lógica, **não** provam o comportamento dentro do
+Minecraft. Estes itens só se confirmam no servidor:
+
+- [ ] **Auto-claim**: inventário cheio + kit pendente; solte um item ou feche um baú → o kit chega sozinho em ~1 s, com "Seu kit foi entregue com sucesso!".
+- [ ] Inventário cheio: o aviso "Você possui kits pendentes! Libere espaço..." aparece e **não repete** a cada clique (no máximo a cada 30 s).
+- [ ] Jogador **offline** com `kits.require-online: false`: comprar, entrar → recebe sozinho.
+- [ ] **Bedrock via Floodgate**: pedido `bedrock` entregue; pedido `java` para o mesmo jogador → `PLATFORM_MISMATCH`.
+- [ ] Shulker Box de **cores diferentes** e itens com encantamento/lore/nome: iguais ao `/dk preview`.
+- [ ] **Long polling**: console mostra "Modo long polling"; com o bot parado e ligado de novo, volta sozinho; entrega em ~1 s após a aprovação.
+- [ ] Matar o servidor (kill) durante uma entrega e reiniciar: console mostra a contagem de interrompidas; `/dk pending` lista; **nada é entregue duas vezes**.
+- [ ] Apagar/estragar um arquivo de `data/pending/` de propósito (em cópia do servidor): vai para `.corrupt-*`, console avisa, `/dk pending` mostra o problema.
+- [ ] Tab: um jogador só com `discordkitbridge.price` não vê `delete`, `reload`, `pending`.
+- [ ] `/dk pending` e `/dk pending resolve <id> delivered|retry` funcionam.
+- [ ] Desligar o bot: resultados ficam em `data/outbox.json`; religar → reenviados e o arquivo esvazia.
