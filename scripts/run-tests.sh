@@ -10,5 +10,5 @@ rm -rf "$OUT" && mkdir -p "$OUT"
 # every source that does not import org.bukkit / net.kyori
 SOURCES=$(find src/main/java -name '*.java' ! -path '*/bukkit/*' ! -path '*/commands/*' ! -path '*/listener/*' ! -name 'DiscordKitBridge.java')
 
-javac -Xlint:all,-serial --release 21 -d "$OUT" $SOURCES src/test/java/br/asthen/kitbridge/TestMain.java
+javac -Xlint:all,-serial --release 21 -d "$OUT" $SOURCES src/test/java/br/asthen/kitbridge/*.java
 java -cp "$OUT" br.asthen.kitbridge.TestMain

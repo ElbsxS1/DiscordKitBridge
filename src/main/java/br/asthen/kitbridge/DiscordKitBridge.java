@@ -1,10 +1,12 @@
 package br.asthen.kitbridge;
 
 import br.asthen.kitbridge.api.ApiServer;
+import br.asthen.kitbridge.api.OutboxStore;
 import br.asthen.kitbridge.api.PollClient;
 import br.asthen.kitbridge.bukkit.BukkitGame;
 import br.asthen.kitbridge.bukkit.PlatformManager;
 import br.asthen.kitbridge.commands.KitCommand;
+import br.asthen.kitbridge.core.DeliveryEvent;
 import br.asthen.kitbridge.core.DeliveryOptions;
 import br.asthen.kitbridge.core.DeliveryService;
 import br.asthen.kitbridge.core.RequestStore;
@@ -38,11 +40,17 @@ public final class DiscordKitBridge extends JavaPlugin {
     private ApiServer api;
     private PollClient poll;
     private BukkitTask pollTask;
+    private PendingStore pendingStore;
+    private OutboxStore outbox;
+    private PlayerListener listener;
 
     public KitManager kits() { return kits; }
     public DeliveryLogger logger() { return logger; }
     public BukkitGame game() { return game; }
     public DeliveryService service() { return service; }
+    public PendingStore pendingStore() { return pendingStore; }
+    public OutboxStore outbox() { return outbox; }
+    public PollClient poll() { return poll; }
 
     @Override
     public void onEnable() {
@@ -62,8 +70,17 @@ public final class DiscordKitBridge extends JavaPlugin {
 
         PlatformManager platforms = new PlatformManager();
         game = new BukkitGame(platforms, () -> options, () -> getConfig().getBoolean("platform.allow-unverified-bedrock", false));
-        service = new DeliveryService(game, kits, requests, new PendingStore(data.resolve("data").resolve("pending")),
+        pendingStore = new PendingStore(data.resolve("data").resolve("pending"), msg -> getLogger().severe(msg));
+        PendingStore.Report rep = pendingStore.recover();
+        getLogger().info("Pendências: " + rep.files() + " arquivo(s) verificado(s), " + rep.restoredFromBackup()
+                + " restaurado(s) do backup, " + rep.quarantined() + " em quarentena, " + rep.interrupted() + " entrega(s) interrompida(s).");
+        outbox = new OutboxStore(data.resolve("data").resolve("outbox.json"), System::currentTimeMillis,
+                msg -> getLogger().warning(msg));
+        if (outbox.size() > 0) getLogger().info("Outbox: " + outbox.size() + " resultado(s)/atualização(ões) ainda não confirmados pelo bot; serão reenviados.");
+        service = new DeliveryService(game, kits, requests, pendingStore,
                 logger, task -> Bukkit.getScheduler().runTask(this, task), () -> options);
+        // later updates (KIT_PENDING -> DELIVERED) are written to the outbox first, then sent when the bot is reachable
+        service.setEventSink(this::queueEvent);
 
         try {
             int n = kits.reload();
@@ -78,7 +95,8 @@ public final class DiscordKitBridge extends JavaPlugin {
             cmd.setExecutor(kc);
             cmd.setTabCompleter(kc);
         }
-        Bukkit.getPluginManager().registerEvents(new PlayerListener(this), this);
+        listener = new PlayerListener(this);
+        Bukkit.getPluginManager().registerEvents(listener, this);
 
         getLogger().info(platforms.available()
                 ? "Floodgate detectado: a plataforma Bedrock/Java será verificada por ele."
@@ -87,8 +105,24 @@ public final class DiscordKitBridge extends JavaPlugin {
         startTransport();
     }
 
+    /** Persists a delivery update, then nudges the transport. Called on the server thread; one small atomic write. */
+    private void queueEvent(DeliveryEvent ev) {
+        String json = br.asthen.kitbridge.util.Json.write(ev.toMap());
+        PollClient p = poll;
+        if (p != null) {
+            p.enqueueEvent(ev.eventId(), ev.requestId(), json); // persisted on the outbox thread, then sent
+            return;
+        }
+        try {
+            outbox.add("event:" + ev.eventId(), OutboxStore.EVENT, ev.requestId(), json);
+        } catch (IOException e) {
+            getLogger().severe("Não foi possível guardar a atualização " + ev.eventId() + " na outbox: " + e.getMessage());
+        }
+    }
+
     @Override
     public void onDisable() {
+        if (listener != null) listener.shutdown();
         stopTransport();
         if (requests != null) requests.close();
         if (logger != null) logger.close();
@@ -181,11 +215,26 @@ public final class DiscordKitBridge extends JavaPlugin {
             getLogger().severe("bridge.poll.url é inválida: " + e.getMessage());
             return;
         }
-        poll = new PollClient(url, secret, service, logger, c.getInt("bridge.poll.max-per-poll", 5), c.getInt("bridge.poll.http-timeout", 10));
-        long ticks = Math.max(1, c.getInt("bridge.poll.interval-seconds", 3)) * 20L;
+        int interval = Math.max(1, c.getInt("bridge.poll.interval-seconds", 3));
+        boolean longPoll = c.getBoolean("bridge.poll.long-poll.enabled", false);
+        int wait = Math.max(1, Math.min(25, c.getInt("bridge.poll.long-poll.wait-seconds", 20)));
+        int httpTimeout = c.getInt("bridge.poll.http-timeout", longPoll ? 35 : 10);
+        PollClient.Options po = new PollClient.Options(c.getInt("bridge.poll.max-per-poll", 5),
+                c.getInt("bridge.poll.connect-timeout", 10), httpTimeout, longPoll, wait, interval);
+        poll = new PollClient(url, secret, service, logger, outbox, po);
         PollClient p = poll;
-        pollTask = Bukkit.getScheduler().runTaskTimerAsynchronously(this, p::pollOnce, 40L, ticks);
-        getLogger().info("Modo polling: consultando " + url + " a cada " + (ticks / 20) + "s.");
+        if (longPoll) {
+            if (httpTimeout < wait + 5) {
+                getLogger().warning("bridge.poll.http-timeout (" + httpTimeout + "s) é menor que long-poll.wait-seconds (" + wait
+                        + "s) + 5; usando " + p.effectiveHttpTimeout().toSeconds() + "s.");
+            }
+            p.start();
+            getLogger().info("Modo long polling: " + url + " (espera de até " + wait + "s por consulta, uma consulta por vez).");
+        } else {
+            long ticks = interval * 20L;
+            pollTask = Bukkit.getScheduler().runTaskTimerAsynchronously(this, p::pollOnce, 40L, ticks);
+            getLogger().info("Modo polling: consultando " + url + " a cada " + interval + "s.");
+        }
     }
 
     private void stopTransport() {
@@ -193,7 +242,10 @@ public final class DiscordKitBridge extends JavaPlugin {
             pollTask.cancel();
             pollTask = null;
         }
-        poll = null;
+        if (poll != null) {
+            poll.stop(); // cancels the waiting pull; unsent results stay in outbox.json
+            poll = null;
+        }
         if (api != null) {
             api.stop();
             api = null;

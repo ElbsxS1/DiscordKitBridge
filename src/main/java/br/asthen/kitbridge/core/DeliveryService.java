@@ -17,6 +17,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 /**
@@ -34,6 +35,11 @@ public final class DeliveryService implements RequestProcessor {
     private final Supplier<DeliveryOptions> options;
 
     private final Set<String> inFlightKeys = ConcurrentHashMap.newKeySet();
+    /** Players with a claim running right now (one claim per player at a time). */
+    private final Set<String> claimLocks = ConcurrentHashMap.newKeySet();
+    /** Delivered in the game, but removing the pending entry from disk failed: never give these again. */
+    private final Set<String> deliveredNotPersisted = ConcurrentHashMap.newKeySet();
+    private volatile Consumer<DeliveryEvent> eventSink = e -> { };
     private final ConcurrentHashMap<String, CompletableFuture<RequestRecord>> running = new ConcurrentHashMap<>();
 
     public DeliveryService(GameAdapter game, KitManager kits, RequestStore store, PendingStore pending,
@@ -69,7 +75,7 @@ public final class DeliveryService implements RequestProcessor {
         running.put(req.requestId(), future);
         future.whenComplete((r, t) -> running.remove(req.requestId()));
 
-        String key = Names.normalize(req.player(), o.floodgatePrefix()) + "|" + req.kit().toLowerCase();
+        String key = req.platform().id() + "|" + Names.normalize(req.player(), o.floodgatePrefix()) + "|" + req.kit().toLowerCase();
         if (o.preventDuplicate() && !inFlightKeys.add(key)) {
             finish(rec, Status.DUPLICATE_REQUEST, null, future, null);
             return future;
@@ -260,51 +266,222 @@ public final class DeliveryService implements RequestProcessor {
 
     // ------------------------------------------------------------ pending claims (main thread)
 
+    /** Where delivery updates after the first answer go (the outbox). Never null. */
+    public void setEventSink(Consumer<DeliveryEvent> sink) {
+        this.eventSink = sink != null ? sink : e -> { };
+    }
+
+    public static final String PENDING_NOTICE = "Você possui kits pendentes! Libere espaço no inventário para receber suas compras.";
+
+    /** Result of one claim run. */
+    public record ClaimResult(int delivered, boolean inventoryFull, int stillPending) {
+    }
+
+    /** @return number of kits delivered (kept for callers that only need the count) */
+    public int claim(PlayerRef player, Platform actual) {
+        return claimDetailed(player, actual).delivered();
+    }
+
     /**
-     * Tries to deliver everything waiting for this player. Runs on the join event and on /dk claim.
+     * Tries to deliver everything waiting for this player. Runs on join, on /dk claim and from auto-claim.
      * Each kit is delivered whole or left in the queue.
      *
+     * <p>Crash safety: the entry is persisted as CLAIMING before any item moves and removed only after the
+     * delivery. A crash in between leaves CLAIMING, which is never retried automatically (the kit may or may
+     * not have reached the inventory), so a kit is never given twice without a person deciding so.
+     *
      * @param actual the player's real platform, or null when unknown
-     * @return number of kits delivered
      */
-    public int claim(PlayerRef player, Platform actual) {
+    public ClaimResult claimDetailed(PlayerRef player, Platform actual) {
+        return claimDetailed(player, actual, true);
+    }
+
+    /** @param tellFull false for automatic attempts: the caller rate-limits the "inventory full" notice itself */
+    public ClaimResult claimDetailed(PlayerRef player, Platform actual, boolean tellFull) {
         DeliveryOptions o = options.get();
+        String uuidKey = "uuid:" + player.uuid();
+        if (!claimLocks.add(uuidKey)) return new ClaimResult(0, false, pendingCount(player, actual)); // already running
         int delivered = 0;
-        List<String> keys = actual == null
-                ? List.of("uuid:" + player.uuid())
-                : List.of("uuid:" + player.uuid(), nameKey(actual, player.name(), o.floodgatePrefix()));
-        for (String key : keys) {
-            for (PendingStore.Entry e : pending.list(key)) {
-                GiveResult r = game.give(player, e.kit());
-                if (r == GiveResult.DELIVERED) {
+        boolean full = false;
+        try {
+            retryUnpersistedRemovals();
+            // the player's identity is now known: file name-based entries under the UUID
+            if (actual != null) {
+                try {
+                    pending.moveAll(nameKey(actual, player.name(), o.floodgatePrefix()), uuidKey);
+                } catch (IOException ex) {
+                    log.log("ERROR", "player", player.name(), "error", "could not file pending kits under the UUID: " + ex.getMessage());
+                }
+            }
+            List<String> keys = actual == null
+                    ? List.of(uuidKey)
+                    : List.of(uuidKey, nameKey(actual, player.name(), o.floodgatePrefix())); // name key kept if moveAll failed
+            outer:
+            for (String key : keys) {
+                for (PendingStore.Entry e : pending.claimable(key)) {
+                    if (alreadyDelivered(key, e)) continue;
                     try {
-                        pending.remove(key, e.requestId());
+                        pending.transition(key, e.requestId(), PendingStore.State.CLAIMING, "claim started");
                     } catch (IOException ex) {
-                        log.log("ERROR", "request_id", e.requestId(), "error", ex.getMessage());
-                        return delivered; // keep the entry rather than risk delivering it twice later
+                        log.log("ERROR", "request_id", e.requestId(), "error", "could not mark CLAIMING, nothing was given: " + ex.getMessage());
+                        break outer;
                     }
-                    delivered++;
-                    game.tell(player, "Você recebeu o kit " + e.kitName() + "!");
-                    store.get(e.requestId()).ifPresent(rec ->
-                            store.update(rec, Status.KIT_DELIVERED, "Kit delivered successfully (from pending)"));
-                    log.log("DELIVERED", "request_id", e.requestId(), "player", player.name(), "kit", e.kitName(), "via", "pending");
-                } else if (r == GiveResult.FULL) {
-                    game.tell(player, "Seu inventário ainda está cheio. Libere espaço e use /dk claim.");
-                    return delivered;
-                } else if (r == GiveResult.CORRUPT) {
-                    log.log("FAILED", "request_id", e.requestId(), "player", player.name(), "kit", e.kitName(), "status", "KIT_CORRUPT");
+                    GiveResult r = game.give(player, e.kit());
+                    if (r == GiveResult.DELIVERED) {
+                        delivered++;
+                        afterDelivered(key, e, player);
+                    } else if (r == GiveResult.FULL) {
+                        safeTransition(key, e, PendingStore.State.RETRY, "inventory full");
+                        full = true;
+                        if (tellFull) game.tell(player, PENDING_NOTICE);
+                        break outer;
+                    } else if (r == GiveResult.CORRUPT) {
+                        safeTransition(key, e, PendingStore.State.ERROR, "kit data could not be loaded");
+                        log.log("FAILED", "request_id", e.requestId(), "player", player.name(), "kit", e.kitName(), "status", "KIT_CORRUPT");
+                    } else { // OFFLINE: the player left between the check and the give; nothing was given
+                        safeTransition(key, e, PendingStore.State.RETRY, "player went offline");
+                        break outer;
+                    }
+                }
+            }
+        } finally {
+            claimLocks.remove(uuidKey);
+        }
+        return new ClaimResult(delivered, full, pendingCount(player, actual));
+    }
+
+    /** If the request history already says DELIVERED, the entry is a leftover (e.g. restored from a backup). */
+    private boolean alreadyDelivered(String key, PendingStore.Entry e) {
+        if (deliveredNotPersisted.contains(e.requestId())) return true;
+        boolean done = store.get(e.requestId()).map(r -> r.status() == Status.KIT_DELIVERED).orElse(false);
+        if (done) {
+            try {
+                pending.remove(key, e.requestId());
+                log.log("RECONCILED", "request_id", e.requestId(), "action", "dropped a leftover pending entry: already delivered");
+            } catch (IOException ex) {
+                deliveredNotPersisted.add(e.requestId());
+                log.log("ERROR", "request_id", e.requestId(), "error", ex.getMessage());
+            }
+        }
+        return done;
+    }
+
+    private void afterDelivered(String key, PendingStore.Entry e, PlayerRef player) {
+        try {
+            pending.remove(key, e.requestId());
+        } catch (IOException ex) {
+            // the kit IS in the inventory: remember that in memory so it is never given again, and retry the cleanup
+            deliveredNotPersisted.add(e.requestId());
+            log.log("ERROR", "request_id", e.requestId(), "error",
+                    "delivered, but removing the pending entry failed (" + ex.getMessage() + "); it will not be given again");
+        }
+        game.tell(player, "Seu kit foi entregue com sucesso!");
+        store.get(e.requestId()).ifPresent(rec ->
+                store.update(rec, Status.KIT_DELIVERED, "Kit delivered successfully (from pending)"));
+        log.log("DELIVERED", "request_id", e.requestId(), "player", player.name(), "kit", e.kitName(), "via", "pending");
+        if (!e.requestId().startsWith("admin-")) {
+            eventSink.accept(new DeliveryEvent(e.requestId(), Status.KIT_DELIVERED.name(), player.name(), e.kitName(),
+                    System.currentTimeMillis()));
+        }
+    }
+
+    private void safeTransition(String key, PendingStore.Entry e, PendingStore.State to, String note) {
+        try {
+            pending.transition(key, e.requestId(), to, note);
+        } catch (IOException ex) {
+            log.log("ERROR", "request_id", e.requestId(), "error", "could not mark " + to + ": " + ex.getMessage());
+        }
+    }
+
+    private void retryUnpersistedRemovals() {
+        if (deliveredNotPersisted.isEmpty()) return;
+        for (String id : List.copyOf(deliveredNotPersisted)) {
+            for (String key : pending.keys()) {
+                for (PendingStore.Entry e : pending.list(key)) {
+                    if (e.requestId().equals(id)) {
+                        try {
+                            pending.remove(key, id);
+                            deliveredNotPersisted.remove(id);
+                        } catch (IOException ex) {
+                            // still failing: keep blocking redelivery
+                        }
+                    }
                 }
             }
         }
-        return delivered;
     }
 
-    /** Number of kits waiting for this player. */
+    /**
+     * Admin decision for an entry stuck in CLAIMING or ERROR (see {@code /dk pending resolve}).
+     *
+     * @param delivered true = the player did get the kit (close it), false = they did not (try again)
+     * @return false when no such entry exists
+     */
+    public boolean resolve(String requestId, boolean delivered) throws IOException {
+        for (String key : pending.keys()) {
+            for (PendingStore.Entry e : pending.list(key)) {
+                if (!e.requestId().equals(requestId)) continue;
+                if (delivered) {
+                    pending.remove(key, requestId);
+                    store.get(requestId).ifPresent(rec -> store.update(rec, Status.KIT_DELIVERED, "Confirmed delivered by an administrator"));
+                    if (!requestId.startsWith("admin-")) {
+                        eventSink.accept(new DeliveryEvent(requestId, Status.KIT_DELIVERED.name(), null, e.kitName(), System.currentTimeMillis()));
+                    }
+                    log.log("ADMIN", "action", "resolve", "request_id", requestId, "result", "delivered");
+                } else {
+                    pending.transition(key, requestId, PendingStore.State.RETRY, "admin: not delivered, retry");
+                    log.log("ADMIN", "action", "resolve", "request_id", requestId, "result", "retry");
+                }
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Unresolved entries that need a person (CLAIMING or ERROR), for /dk pending. */
+    public List<PendingStore.Entry> needsAttention() {
+        List<PendingStore.Entry> out = new java.util.ArrayList<>();
+        for (String key : pending.keys()) {
+            for (PendingStore.Entry e : pending.list(key)) {
+                if (e.state() == PendingStore.State.CLAIMING || e.state() == PendingStore.State.ERROR) out.add(e);
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Safety net: requests the bot was told are KIT_PENDING but that have no pending entry any more (for example
+     * after a pending file had to be restored from an older backup). They are not redelivered automatically.
+     */
+    public List<RequestRecord> orphanedPending() {
+        java.util.Set<String> known = new java.util.HashSet<>();
+        for (String key : pending.keys()) for (PendingStore.Entry e : pending.list(key)) known.add(e.requestId());
+        known.addAll(deliveredNotPersisted);
+        List<RequestRecord> out = new java.util.ArrayList<>();
+        for (RequestRecord r : store.all()) {
+            if (r.status() == Status.KIT_PENDING && !known.contains(r.requestId())) out.add(r);
+        }
+        return out;
+    }
+
+    /** Number of kits waiting for this player (any unresolved state). */
     public int pendingCount(PlayerRef player, Platform actual) {
         DeliveryOptions o = options.get();
         int n = pending.count("uuid:" + player.uuid());
         if (actual != null) n += pending.count(nameKey(actual, player.name(), o.floodgatePrefix()));
         return n;
+    }
+
+    /** Memory-only and cheapest: anything claimable filed under this UUID? Safe on every inventory event. */
+    public boolean hasClaimableByUuid(java.util.UUID uuid) {
+        return pending.hasClaimable("uuid:" + uuid);
+    }
+
+    /** Memory-only: is there something this player could receive right now? Safe on every inventory event. */
+    public boolean hasClaimable(PlayerRef player, Platform actual) {
+        DeliveryOptions o = options.get();
+        if (pending.hasClaimable("uuid:" + player.uuid())) return true;
+        return actual != null && pending.hasClaimable(nameKey(actual, player.name(), o.floodgatePrefix()));
     }
 
     private static String nameKey(Platform p, String name, String prefix) {

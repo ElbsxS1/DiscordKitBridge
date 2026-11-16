@@ -1,6 +1,7 @@
 package br.asthen.kitbridge;
 
 import br.asthen.kitbridge.api.ApiServer;
+import br.asthen.kitbridge.api.OutboxStore;
 import br.asthen.kitbridge.api.PollClient;
 import br.asthen.kitbridge.core.*;
 import br.asthen.kitbridge.core.GameAdapter.GiveResult;
@@ -48,6 +49,7 @@ public final class TestMain {
         final List<String> given = Collections.synchronizedList(new ArrayList<>());
         final List<String> told = Collections.synchronizedList(new ArrayList<>());
         boolean unverifiable, corrupt;
+        volatile Runnable onGive; // test hook: runs at the moment items reach the inventory
 
         PlayerRef join(String name, Platform p) {
             PlayerRef r = new PlayerRef(UUID.nameUUIDFromBytes(name.getBytes()), name);
@@ -70,6 +72,8 @@ public final class TestMain {
             if (!online.containsKey(p.name().toLowerCase())) return GiveResult.OFFLINE;
             if (full.contains(p.uuid())) return GiveResult.FULL;
             given.add(p.name() + ":" + kit.name());
+            Runnable h = onGive;
+            if (h != null) h.run();
             return GiveResult.DELIVERED;
         }
 
@@ -881,10 +885,14 @@ public final class TestMain {
                 e.game.join("Elber", Platform.BEDROCK);
                 bot.failResultsFirst.set(1);
                 bot.queue.add(body("poll-4", "Elber", "bedrock", "VipGuloso"));
-                PollClient pc = new PollClient(bot.url(), TOKEN, e.service, e.log, 5, 5);
+                long[] now = {1_000_000L};
+                OutboxStore ob = new OutboxStore(null, () -> now[0], m -> { });
+                PollClient pc = new PollClient(bot.url(), TOKEN, e.service, e.log, ob, PollClient.Options.classic(5, 5));
                 pc.pollOnce();
                 waitFor(() -> pc.outboxSize() == 1, 5000, "result parked in outbox");
+                waitFor(() -> { OutboxStore.Item it = ob.get("result:poll-4"); return it != null && it.attempts == 1; }, 5000, "first attempt failed and was scheduled for later");
                 eq(1, e.game.given.size(), "delivered");
+                now[0] += 60_000L; // the retry is not immediate any more (progressive backoff)
                 pc.pollOnce();
                 waitFor(() -> pc.outboxSize() == 0, 5000, "outbox drained");
                 eq(1, e.game.given.size(), "still delivered only once");
@@ -971,6 +979,8 @@ public final class TestMain {
             }
         });
 
+        Tests130.runAll();
+
         // ------------------------------------------------------------ summary
         System.out.println("\n" + passed + " passed, " + failed + " failed");
         if (failed > 0) {
@@ -1005,26 +1015,61 @@ public final class TestMain {
         final java.util.concurrent.atomic.AtomicBoolean sawToken = new java.util.concurrent.atomic.AtomicBoolean();
         final java.util.concurrent.atomic.AtomicBoolean sawBadToken = new java.util.concurrent.atomic.AtomicBoolean();
         volatile boolean ignoreLimit;
+        final List<String> pullQueries = new CopyOnWriteArrayList<>();
+        final List<String> eventBodies = new CopyOnWriteArrayList<>();
+        final AtomicInteger resultStatus = new AtomicInteger();   // 0 = behave; otherwise answer this HTTP code
+        final AtomicInteger eventsStatus = new AtomicInteger();
+        final AtomicInteger resultPosts = new AtomicInteger();
+        final AtomicInteger pullStatus = new AtomicInteger();     // 0 = behave; otherwise answer this HTTP code to pulls
+        final AtomicInteger activePulls = new AtomicInteger();
+        final AtomicInteger maxConcurrentPulls = new AtomicInteger();
+        volatile long holdMs; // how long an empty pull is held open when wait_ms is sent (kept short for tests)
 
         FakeBot() throws Exception {
             server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
             server.createContext("/plugin/v1/pull", ex -> {
                 pulls.incrementAndGet();
                 if (!authed(ex)) { send(ex, 401, "{}"); return; }
+                if (pullStatus.get() != 0) { send(ex, pullStatus.get(), "{}"); return; }
+                int act = activePulls.incrementAndGet();
+                maxConcurrentPulls.accumulateAndGet(act, Math::max);
+                try {
                 String q = ex.getRequestURI().getQuery();
-                int limit = Integer.parseInt(q.substring(q.indexOf('=') + 1));
+                pullQueries.add(q);
+                int limit = 5;
+                long waitMs = 0;
+                for (String part : q.split("&")) {
+                    String[] kv = part.split("=", 2);
+                    if (kv[0].equals("limit")) limit = Integer.parseInt(kv[1]);
+                    if (kv[0].equals("wait_ms")) waitMs = Long.parseLong(kv[1]);
+                }
                 List<String> out = new ArrayList<>();
                 String next;
-                while ((ignoreLimit || out.size() < limit) && (next = queue.poll()) != null) out.add(next);
+                long deadline = System.currentTimeMillis() + Math.min(waitMs, holdMs);
+                while (true) {
+                    while ((ignoreLimit || out.size() < limit) && (next = queue.poll()) != null) out.add(next);
+                    if (!out.isEmpty() || System.currentTimeMillis() >= deadline) break;
+                    try { Thread.sleep(10); } catch (InterruptedException ie) { break; }
+                }
                 if (out.isEmpty()) { ex.sendResponseHeaders(204, -1); ex.close(); return; }
                 send(ex, 200, "{\"requests\":[" + String.join(",", out) + "]}");
+                } finally { activePulls.decrementAndGet(); }
             });
             server.createContext("/plugin/v1/result", ex -> {
                 if (!authed(ex)) { send(ex, 401, "{}"); return; }
                 String b = new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+                resultPosts.incrementAndGet();
                 if (failResultsFirst.getAndUpdate(v -> Math.max(0, v - 1)) > 0) { send(ex, 500, "{}"); return; }
+                if (resultStatus.get() != 0) { send(ex, resultStatus.get(), "{\"success\":false}"); return; }
                 resultBodies.add(b);
-                send(ex, 200, "{}");
+                send(ex, 200, "{\"success\":true}"); // the real bot's confirmation
+            });
+            server.createContext("/plugin/v1/events", ex -> {
+                if (!authed(ex)) { send(ex, 401, "{}"); return; }
+                String b = new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+                if (eventsStatus.get() != 0) { send(ex, eventsStatus.get(), "{\"success\":false}"); return; }
+                eventBodies.add(b);
+                send(ex, 200, "{\"success\":true}");
             });
             server.createContext("/plugin/v1/kits", ex -> {
                 if (!authed(ex)) { send(ex, 401, "{}"); return; }
