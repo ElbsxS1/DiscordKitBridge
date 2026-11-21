@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.4.0
+
+### Novo: Kit Inicial
+- Kit especial **`Kit_Inicial`**, entregue pelo próprio plugin **sem a Shulker Box** (só os itens de dentro vão direto para o inventário).
+- Entregue quando o jogador: **entra no servidor**, **renasce depois de morrer** e **entra na sobrevivência pelo aldeão do LobbyGuard** (lobby → survival, detectado por `PlayerChangedWorldEvent`; o LobbyGuard não precisa ser alterado).
+- **Nunca vai para o bot do Discord**: fica fora da lista de kits sincronizada com o bot, um pedido do Discord por esse nome responde `KIT_NOT_FOUND` (igual a um kit inexistente, nada é entregue nem guardado como pendente) e nenhum evento/resultado sobre ele entra na outbox. O único rastro é uma linha no log local (`STARTER_KIT`).
+- Cadastro: segure uma Shulker Box com os itens e use `/dk create Kit_Inicial`.
+- `/dk starter [jogador]` entrega na hora, para testar (permissão `discordkitbridge.give`).
+- Seção nova `starter-kit` no `config.yml` (ligar/desligar cada gatilho, nome, mensagem, cooldown, mundos). Veja `CONFIG.md`.
+- Cooldown por jogador (`cooldown-seconds`, padrão 10 s) evita kit duplo quando dois gatilhos disparam juntos.
+- Inventário cheio: o que não couber cai aos pés do jogador e só ele pode pegar (`drop-if-full`).
+- 113 testes automáticos (eram 100).
+
+### Mudanças de comportamento
+- O nome do Kit Inicial fica **reservado**: mesmo com `starter-kit.enabled: false` o bot continua sem enxergá-lo.
+- Ao entrar no servidor, quem está no mundo `lobby` **não** recebe o kit (`on-join.skip-worlds`): ele vem ao clicar no aldeão. Para entregar também no lobby, deixe a lista vazia.
+
+### Limitações conhecidas
+- Voltar ao lobby (`/lob`) e clicar no aldeão de novo entrega o kit outra vez (passado o cooldown). É o comportamento pedido; para limitar, desligue `on-enter-world` ou aumente `cooldown-seconds`.
+- Os testes automáticos não executam o Paper: os eventos e o inventário precisam de teste no servidor (ver `TESTING.md`).
+
 ## 1.3.0
 
 ### Corrigido

@@ -25,3 +25,13 @@ Depois de editar: `/dk reload` (o `logs.enabled` exige reiniciar).
 | `security.request-timeout` | `30` | Segundos até um pedido não processado virar `TIMEOUT` |
 | `security.max-body-bytes` | `4096` | Tamanho máximo do corpo (modo `server`) |
 | `logs.enabled` / `retention-days` | `true` / `30` | Logs diários |
+| `starter-kit.enabled` | `true` | Liga todas as entregas automáticas do Kit Inicial |
+| `starter-kit.name` | `Kit_Inicial` | Kit cadastrado com `/dk create`. O nome fica reservado: o bot nunca o vê |
+| `starter-kit.cooldown-seconds` | `10` | O mesmo jogador não recebe duas vezes dentro deste tempo (0 desliga) |
+| `starter-kit.on-join.enabled` | `true` | Entrega ao entrar no servidor |
+| `starter-kit.on-join.skip-worlds` | `["lobby"]` | Ao entrar, não entrega a quem estiver nestes mundos |
+| `starter-kit.on-death` | `true` | Entrega depois de renascer |
+| `starter-kit.on-enter-world.enabled` | `true` | Entrega ao ir do mundo `from` ao mundo `to` (aldeão do LobbyGuard) |
+| `starter-kit.on-enter-world.from` / `to` | `lobby` / `survival` | Devem ser iguais a `worlds.lobby` / `worlds.survival` do LobbyGuard |
+| `starter-kit.drop-if-full` | `true` | O que não couber cai aos pés do jogador (só ele pega); `false` = se perde |
+| `starter-kit.message` | `&aVocê recebeu o &lKit Inicial&a!` | Mensagem no chat; vazio = sem mensagem |

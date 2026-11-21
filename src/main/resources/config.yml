@@ -62,6 +62,34 @@ security:
   request-timeout: 30
   max-body-bytes: 4096
 
+# Kit Inicial: entregue pelo próprio plugin, SEM a Shulker Box (só os itens de dentro).
+# Nunca aparece no bot do Discord, não pode ser pedido por lá e nada sobre ele é enviado ao bot.
+# Para criar: segure uma Shulker Box com os itens e use /dk create Kit_Inicial
+starter-kit:
+  enabled: true
+  # Nome do kit cadastrado com /dk create. Esse nome fica reservado: o bot nunca o vê.
+  name: "Kit_Inicial"
+  # O mesmo jogador nunca recebe duas vezes dentro deste tempo, seja qual for o gatilho
+  # (evita kit duplo ao entrar e clicar no aldeão logo em seguida, ou ao morrer no Nether e renascer no Overworld).
+  cooldown-seconds: 10
+  on-join:
+    enabled: true
+    # Ao entrar no servidor, não entrega se o jogador estiver nestes mundos (o LobbyGuard coloca todo mundo no lobby;
+    # lá o kit seria inútil, então ele vem ao clicar no aldeão). Deixe a lista vazia ([]) para entregar também no lobby.
+    skip-worlds: ["lobby"]
+  # Entrega logo depois de renascer
+  on-death: true
+  # Entrega ao ir de um mundo a outro. É o aldeão do LobbyGuard: lobby -> sobrevivência.
+  # Use os mesmos nomes de worlds.lobby / worlds.survival do config do LobbyGuard.
+  on-enter-world:
+    enabled: true
+    from: "lobby"
+    to: "survival"
+  # Inventário cheio: o que não couber cai aos pés do jogador (só ele consegue pegar). false = o que sobra se perde.
+  drop-if-full: true
+  # Mensagem no chat (& = cor). Vazio = sem mensagem.
+  message: "&aVocê recebeu o &lKit Inicial&a!"
+
 logs:
   # Alterar este valor exige reiniciar o servidor.
   enabled: true

@@ -980,6 +980,7 @@ public final class TestMain {
         });
 
         Tests130.runAll();
+        Tests140.runAll();
 
         // ------------------------------------------------------------ summary
         System.out.println("\n" + passed + " passed, " + failed + " failed");

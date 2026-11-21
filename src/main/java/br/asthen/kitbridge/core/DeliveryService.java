@@ -115,7 +115,9 @@ public final class DeliveryService implements RequestProcessor {
 
     @Override
     public List<KitData> kits() {
-        return kits.list();
+        // the Kit Inicial is internal: it must never be shown to (or synced with) the Discord bot
+        String starter = options.get().starterKitName();
+        return kits.list().stream().filter(k -> !StarterKitPolicy.isStarter(k.name(), starter)).toList();
     }
 
     // ------------------------------------------------------------ pipeline (main thread)
@@ -123,6 +125,13 @@ public final class DeliveryService implements RequestProcessor {
     private void process(RequestRecord rec, DeliveryOptions o, CompletableFuture<RequestRecord> future, String heldKey) {
         if (!o.allowDiscordDelivery()) {
             finish(rec, Status.DELIVERY_DISABLED, null, future, heldKey);
+            return;
+        }
+        // The Kit Inicial is given by the plugin itself (join/death/lobby NPC), never by a Discord request.
+        // Answer exactly like an unknown kit so the bot cannot tell it exists, and nothing is queued or delivered.
+        if (StarterKitPolicy.isStarter(rec.kit(), o.starterKitName())) {
+            log.log("STARTER_KIT_REFUSED", "request_id", rec.requestId(), "player", rec.player());
+            finish(rec, Status.KIT_NOT_FOUND, null, future, heldKey);
             return;
         }
 

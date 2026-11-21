@@ -34,7 +34,7 @@ public final class KitCommand implements TabExecutor {
 
     private static final long CONFIRM_MS = 30_000L;
     private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm").withZone(ZoneId.systemDefault());
-    private static final List<String> SUBS = List.of("create", "delete", "list", "info", "preview", "give", "price", "enable", "disable", "toggle", "claim", "pending", "reload", "help");
+    private static final List<String> SUBS = List.of("create", "delete", "list", "info", "preview", "give", "starter", "price", "enable", "disable", "toggle", "claim", "pending", "reload", "help");
 
     /** Permission required by each subcommand; used by help and tab completion so players only see what they can run. */
     private static final Map<String, String> PERMS = Map.ofEntries(
@@ -44,6 +44,7 @@ public final class KitCommand implements TabExecutor {
             Map.entry("info", "discordkitbridge.list"),
             Map.entry("preview", "discordkitbridge.preview"),
             Map.entry("give", "discordkitbridge.give"),
+            Map.entry("starter", "discordkitbridge.give"),
             Map.entry("price", "discordkitbridge.price"),
             Map.entry("enable", "discordkitbridge.toggle"),
             Map.entry("disable", "discordkitbridge.toggle"),
@@ -72,6 +73,7 @@ public final class KitCommand implements TabExecutor {
             case "info" -> info(s, a);
             case "preview" -> preview(s, a);
             case "give" -> give(s, a);
+            case "starter" -> starter(s, a);
             case "price" -> price(s, a);
             case "enable" -> setEnabled(s, a, true);
             case "disable" -> setEnabled(s, a, false);
@@ -157,7 +159,9 @@ public final class KitCommand implements TabExecutor {
         Msg.ok(s, kits.size() + " kit(s) cadastrado(s):");
         for (KitData k : kits) {
             Msg.plain(s, " - " + k.name() + " (" + k.itemCount() + " itens) "
-                    + (k.hasPrice() ? Prices.format(k.priceCents()) : "sem preço") + (k.enabled() ? "" : " [desativado]"));
+                    + (k.hasPrice() ? Prices.format(k.priceCents()) : "sem preço") + (k.enabled() ? "" : " [desativado]")
+                    + (br.asthen.kitbridge.core.StarterKitPolicy.isStarter(k.name(), plugin.starterSettings().name())
+                    ? " [Kit Inicial: automático, sem Shulker Box, invisível ao bot]" : ""));
         }
     }
 
@@ -245,6 +249,32 @@ public final class KitCommand implements TabExecutor {
             case CORRUPT -> Msg.error(s, "Este kit está corrompido e não pôde ser entregue. Veja o console.");
             case OFFLINE -> Msg.error(s, "Jogador não está online: " + target.getName());
             case ERROR -> Msg.error(s, "Não foi possível guardar o kit pendente. Veja o console.");
+        }
+    }
+
+    /** /dk starter [jogador]: entrega o Kit Inicial na hora (teste), sem Shulker Box e sem passar pelo bot. */
+    private void starter(CommandSender s, String[] a) {
+        if (!allowed(s, "discordkitbridge.give")) return;
+        Player target;
+        if (a.length >= 2) {
+            target = Bukkit.getPlayerExact(a[1]);
+            if (target == null) {
+                Msg.error(s, "Jogador não está online: " + a[1]);
+                return;
+            }
+        } else if (s instanceof Player self) {
+            target = self;
+        } else {
+            Msg.info(s, "No console informe o jogador: /dk starter <jogador>");
+            return;
+        }
+        String name = plugin.starterSettings().name();
+        switch (plugin.starterKit().give(target, "command", false)) {
+            case DELIVERED -> Msg.ok(s, "Kit Inicial entregue a " + target.getName() + " (sem Shulker Box).");
+            case NO_KIT -> Msg.error(s, "O kit " + name + " não existe. Segure uma Shulker Box e use /dk create " + name);
+            case CORRUPT -> Msg.error(s, "O kit " + name + " está corrompido e não pôde ser entregue. Veja o console.");
+            case DISABLED -> Msg.error(s, "O Kit Inicial está desativado (starter-kit.enabled: false).");
+            case COOLDOWN -> Msg.info(s, "Aguarde um instante antes de pedir de novo.");
         }
     }
 
@@ -407,6 +437,7 @@ public final class KitCommand implements TabExecutor {
                 {"info", " /dk info <nome>    - detalhes de um kit"},
                 {"preview", " /dk preview <nome> - visualiza os itens"},
                 {"give", " /dk give <nome> [jogador] - entrega o kit (a você, se omitir o jogador)"},
+                {"starter", " /dk starter [jogador] - entrega o Kit Inicial (sem Shulker Box)"},
                 {"price", " /dk price <nome> <valor> - define o preço (ex.: 29,90)"},
                 {"enable", " /dk enable <nome>  - ativa um kit"},
                 {"disable", " /dk disable <nome> - desativa um kit (fica indisponível na loja)"},
@@ -447,6 +478,8 @@ public final class KitCommand implements TabExecutor {
             for (String o : List.of("delivered", "retry")) if (o.startsWith(a[3].toLowerCase(Locale.ROOT))) out.add(o);
         } else if (a.length == 3 && a[0].equalsIgnoreCase("delete") && s.hasPermission("discordkitbridge.delete")) {
             out.add("confirm");
+        } else if (a.length == 2 && a[0].equalsIgnoreCase("starter") && s.hasPermission("discordkitbridge.give")) {
+            for (Player p : Bukkit.getOnlinePlayers()) if (p.getName().toLowerCase(Locale.ROOT).startsWith(a[1].toLowerCase(Locale.ROOT))) out.add(p.getName());
         } else if (a.length == 3 && a[0].equalsIgnoreCase("give") && s.hasPermission("discordkitbridge.give")) {
             for (Player p : Bukkit.getOnlinePlayers()) if (p.getName().toLowerCase(Locale.ROOT).startsWith(a[2].toLowerCase(Locale.ROOT))) out.add(p.getName());
         }

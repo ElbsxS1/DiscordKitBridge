@@ -5,6 +5,9 @@ import br.asthen.kitbridge.api.OutboxStore;
 import br.asthen.kitbridge.api.PollClient;
 import br.asthen.kitbridge.bukkit.BukkitGame;
 import br.asthen.kitbridge.bukkit.PlatformManager;
+import br.asthen.kitbridge.bukkit.StarterKitService;
+import br.asthen.kitbridge.core.StarterKitSettings;
+import br.asthen.kitbridge.listener.StarterKitListener;
 import br.asthen.kitbridge.commands.KitCommand;
 import br.asthen.kitbridge.core.DeliveryEvent;
 import br.asthen.kitbridge.core.DeliveryOptions;
@@ -43,7 +46,12 @@ public final class DiscordKitBridge extends JavaPlugin {
     private PendingStore pendingStore;
     private OutboxStore outbox;
     private PlayerListener listener;
+    private StarterKitListener starterListener;
+    private StarterKitService starterKit;
+    private volatile StarterKitSettings starterSettings;
 
+    public StarterKitService starterKit() { return starterKit; }
+    public StarterKitSettings starterSettings() { return starterSettings; }
     public KitManager kits() { return kits; }
     public DeliveryLogger logger() { return logger; }
     public BukkitGame game() { return game; }
@@ -55,6 +63,7 @@ public final class DiscordKitBridge extends JavaPlugin {
     @Override
     public void onEnable() {
         saveDefaultConfig();
+        starterSettings = readStarterSettings();
         options = readOptions();
         Path data = getDataFolder().toPath();
 
@@ -98,6 +107,14 @@ public final class DiscordKitBridge extends JavaPlugin {
         listener = new PlayerListener(this);
         Bukkit.getPluginManager().registerEvents(listener, this);
 
+        // Kit Inicial: given by the plugin itself, never sent to or requested through the Discord bot
+        starterKit = new StarterKitService(this);
+        starterListener = new StarterKitListener(this);
+        Bukkit.getPluginManager().registerEvents(starterListener, this);
+        StarterKitSettings ss = starterSettings;
+        getLogger().info("Kit Inicial \"" + ss.name() + "\": " + (ss.enabled() ? "ativo" : "desativado")
+                + (kits.get(ss.name()).isEmpty() && ss.enabled() ? " (ainda não cadastrado: use /dk create " + ss.name() + ")" : "") + ".");
+
         getLogger().info(platforms.available()
                 ? "Floodgate detectado: a plataforma Bedrock/Java será verificada por ele."
                 : "Floodgate não encontrado: pedidos Bedrock só serão aceitos se platform.allow-unverified-bedrock for true.");
@@ -123,6 +140,7 @@ public final class DiscordKitBridge extends JavaPlugin {
     @Override
     public void onDisable() {
         if (listener != null) listener.shutdown();
+        if (starterListener != null) starterListener.shutdown();
         stopTransport();
         if (requests != null) requests.close();
         if (logger != null) logger.close();
@@ -131,6 +149,7 @@ public final class DiscordKitBridge extends JavaPlugin {
     /** Re-reads config.yml and the kits folder and restarts the transport. @return number of kits loaded */
     public int reloadAll() throws IOException {
         reloadConfig();
+        starterSettings = readStarterSettings();
         options = readOptions();
         stopTransport();
         int n = kits.reload();
@@ -148,7 +167,25 @@ public final class DiscordKitBridge extends JavaPlugin {
                 c.getBoolean("delivery.pending-if-inventory-full", true),
                 c.getBoolean("delivery.prevent-duplicate", true),
                 Math.max(1, c.getInt("security.request-timeout", 30)),
-                c.getString("platform.floodgate-prefix", "."));
+                c.getString("platform.floodgate-prefix", "."),
+                // the name stays reserved (hidden from the bot) even if starter-kit.enabled is false
+                starterSettings.name());
+    }
+
+    private StarterKitSettings readStarterSettings() {
+        FileConfiguration c = getConfig();
+        return new StarterKitSettings(
+                c.getBoolean("starter-kit.enabled", true),
+                c.getString("starter-kit.name", "Kit_Inicial"),
+                c.getInt("starter-kit.cooldown-seconds", 10),
+                c.getBoolean("starter-kit.on-join.enabled", true),
+                new java.util.HashSet<>(c.getStringList("starter-kit.on-join.skip-worlds")),
+                c.getBoolean("starter-kit.on-death", true),
+                c.getBoolean("starter-kit.on-enter-world.enabled", true),
+                c.getString("starter-kit.on-enter-world.from", "lobby"),
+                c.getString("starter-kit.on-enter-world.to", "survival"),
+                c.getBoolean("starter-kit.drop-if-full", true),
+                c.getString("starter-kit.message", "&aVocê recebeu o &lKit Inicial&a!"));
     }
 
     /** Env var DKB_SECRET wins; otherwise config; otherwise a strong token is generated and saved. */

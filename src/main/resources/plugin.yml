@@ -9,7 +9,7 @@ softdepend: [floodgate]
 commands:
   dk:
     description: Gerencia os kits do DiscordKitBridge
-    usage: /dk <create|delete|list|info|preview|give|price|enable|disable|toggle|claim|pending|reload>
+    usage: /dk <create|delete|list|info|preview|give|starter|price|enable|disable|toggle|claim|pending|reload>
     aliases: [discordkit]
 
 permissions:

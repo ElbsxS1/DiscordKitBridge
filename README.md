@@ -24,7 +24,7 @@ Para **compilar**: JDK 25 e Maven (ou use o GitHub Actions deste repositório, q
 
 ## Instalação
 
-1. Baixe `DiscordKitBridge-1.3.0.jar` (aba *Actions* → último build → *Artifacts*, ou compile com `mvn package`).
+1. Baixe `DiscordKitBridge-1.4.0.jar` (aba *Actions* → último build → *Artifacts*, ou compile com `mvn package`).
 2. Coloque na pasta `plugins/` do servidor e reinicie.
 3. Abra `plugins/DiscordKitBridge/config.yml`:
    - O plugin gera um **token forte** em `bridge.secret` na primeira execução. Copie-o para o bot.
@@ -261,7 +261,17 @@ Faça backup de `kits/` e `data/`.
 
 ```bash
 ./scripts/run-tests.sh   # 100 testes, só JDK (sem servidor, sem Maven)
-mvn package              # gera target/DiscordKitBridge-1.3.0.jar (JDK 25)
+mvn package              # gera target/DiscordKitBridge-1.4.0.jar (JDK 25)
 ```
 
 Veja `TESTING.md` para o roteiro de testes dentro do jogo.
+
+## Kit Inicial (1.4.0)
+
+Kit entregue automaticamente, **sem Shulker Box** (só os itens de dentro) e **sem passar pelo bot do Discord**.
+
+1. Monte uma Shulker Box com os itens, segure-a e use `/dk create Kit_Inicial`.
+2. Pronto: o jogador recebe o kit ao **entrar no servidor**, ao **renascer depois de morrer** e ao **entrar na sobrevivência pelo aldeão do LobbyGuard** (lobby → survival).
+3. Ajustes na seção `starter-kit` do `config.yml` (veja [CONFIG.md](CONFIG.md)). Teste na hora com `/dk starter [jogador]`.
+
+O bot nunca enxerga esse kit: ele não aparece na lista sincronizada, e um pedido do Discord por esse nome responde "kit não encontrado".
