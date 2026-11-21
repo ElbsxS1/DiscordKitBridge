@@ -62,7 +62,7 @@ security:
   request-timeout: 30
   max-body-bytes: 4096
 
-# Kit Inicial: entregue pelo próprio plugin, SEM a Shulker Box (só os itens de dentro).
+# Kit Inicial: entregue na PRIMEIRA vez do jogador e toda vez que ele morre. Entregue pelo próprio plugin, SEM a Shulker Box (só os itens de dentro).
 # Nunca aparece no bot do Discord, não pode ser pedido por lá e nada sobre ele é enviado ao bot.
 # Para criar: segure uma Shulker Box com os itens e use /dk create Kit_Inicial
 starter-kit:
@@ -85,6 +85,9 @@ starter-kit:
     enabled: true
     from: "lobby"
     to: "survival"
+  # true = ao entrar no servidor / entrar na sobrevivência pelo aldeão, só recebe quem NUNCA recebeu o kit
+  # (fica salvo em data/starter-received.txt). Morrer entrega sempre. false = entrega a cada entrada (spam do aldeão).
+  first-time-only: true
   # Inventário cheio: o que não couber cai aos pés do jogador (só ele consegue pegar). false = o que sobra se perde.
   drop-if-full: true
   # Mensagem no chat (& = cor). Vazio = sem mensagem.

@@ -33,5 +33,6 @@ Depois de editar: `/dk reload` (o `logs.enabled` exige reiniciar).
 | `starter-kit.on-death` | `true` | Entrega depois de renascer |
 | `starter-kit.on-enter-world.enabled` | `true` | Entrega ao ir do mundo `from` ao mundo `to` (aldeão do LobbyGuard) |
 | `starter-kit.on-enter-world.from` / `to` | `lobby` / `survival` | Devem ser iguais a `worlds.lobby` / `worlds.survival` do LobbyGuard |
+| `starter-kit.first-time-only` | `true` | Ao entrar / entrar pelo aldeão, só recebe quem nunca recebeu (salvo em `data/starter-received.txt`). Morrer entrega sempre. `false` = a cada entrada |
 | `starter-kit.drop-if-full` | `true` | O que não couber cai aos pés do jogador (só ele pega); `false` = se perde |
 | `starter-kit.message` | `&aVocê recebeu o &lKit Inicial&a!` | Mensagem no chat; vazio = sem mensagem |

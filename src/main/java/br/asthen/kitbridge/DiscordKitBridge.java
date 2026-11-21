@@ -6,6 +6,7 @@ import br.asthen.kitbridge.api.PollClient;
 import br.asthen.kitbridge.bukkit.BukkitGame;
 import br.asthen.kitbridge.bukkit.PlatformManager;
 import br.asthen.kitbridge.bukkit.StarterKitService;
+import br.asthen.kitbridge.core.StarterKitReceived;
 import br.asthen.kitbridge.core.StarterKitSettings;
 import br.asthen.kitbridge.listener.StarterKitListener;
 import br.asthen.kitbridge.commands.KitCommand;
@@ -108,11 +109,14 @@ public final class DiscordKitBridge extends JavaPlugin {
         Bukkit.getPluginManager().registerEvents(listener, this);
 
         // Kit Inicial: given by the plugin itself, never sent to or requested through the Discord bot
-        starterKit = new StarterKitService(this);
+        StarterKitReceived receivedStore = new StarterKitReceived(data.resolve("data").resolve("starter-received.txt"),
+                msg -> getLogger().warning(msg));
+        int already = receivedStore.load();
+        starterKit = new StarterKitService(this, receivedStore);
         starterListener = new StarterKitListener(this);
         Bukkit.getPluginManager().registerEvents(starterListener, this);
         StarterKitSettings ss = starterSettings;
-        getLogger().info("Kit Inicial \"" + ss.name() + "\": " + (ss.enabled() ? "ativo" : "desativado")
+        getLogger().info("Kit Inicial \"" + ss.name() + "\": " + (ss.enabled() ? "ativo" : "desativado") + ", " + already + " jogador(es) já receberam"
                 + (kits.get(ss.name()).isEmpty() && ss.enabled() ? " (ainda não cadastrado: use /dk create " + ss.name() + ")" : "") + ".");
 
         getLogger().info(platforms.available()
@@ -184,6 +188,7 @@ public final class DiscordKitBridge extends JavaPlugin {
                 c.getBoolean("starter-kit.on-enter-world.enabled", true),
                 c.getString("starter-kit.on-enter-world.from", "lobby"),
                 c.getString("starter-kit.on-enter-world.to", "survival"),
+                c.getBoolean("starter-kit.first-time-only", true),
                 c.getBoolean("starter-kit.drop-if-full", true),
                 c.getString("starter-kit.message", "&aVocê recebeu o &lKit Inicial&a!"));
     }

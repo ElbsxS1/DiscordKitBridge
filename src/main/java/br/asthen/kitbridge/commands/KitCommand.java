@@ -274,7 +274,7 @@ public final class KitCommand implements TabExecutor {
             case NO_KIT -> Msg.error(s, "O kit " + name + " não existe. Segure uma Shulker Box e use /dk create " + name);
             case CORRUPT -> Msg.error(s, "O kit " + name + " está corrompido e não pôde ser entregue. Veja o console.");
             case DISABLED -> Msg.error(s, "O Kit Inicial está desativado (starter-kit.enabled: false).");
-            case COOLDOWN -> Msg.info(s, "Aguarde um instante antes de pedir de novo.");
+            case COOLDOWN, ALREADY_RECEIVED -> Msg.info(s, "Aguarde um instante antes de pedir de novo.");
         }
     }
 

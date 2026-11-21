@@ -271,7 +271,7 @@ Veja `TESTING.md` para o roteiro de testes dentro do jogo.
 Kit entregue automaticamente, **sem Shulker Box** (só os itens de dentro) e **sem passar pelo bot do Discord**.
 
 1. Monte uma Shulker Box com os itens, segure-a e use `/dk create Kit_Inicial`.
-2. Pronto: o jogador recebe o kit ao **entrar no servidor**, ao **renascer depois de morrer** e ao **entrar na sobrevivência pelo aldeão do LobbyGuard** (lobby → survival).
+2. Pronto: o jogador recebe o kit **uma única vez na primeira entrada** (ao entrar no servidor, ou ao entrar na sobrevivência pelo aldeão do LobbyGuard) e **toda vez que morre**. Clicar no aldeão de novo não dá mais nada.
 3. Ajustes na seção `starter-kit` do `config.yml` (veja [CONFIG.md](CONFIG.md)). Teste na hora com `/dk starter [jogador]`.
 
 O bot nunca enxerga esse kit: ele não aparece na lista sincronizada, e um pedido do Discord por esse nome responde "kit não encontrado".

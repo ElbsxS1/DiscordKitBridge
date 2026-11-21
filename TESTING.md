@@ -1,6 +1,6 @@
 # Roteiro de testes no servidor
 
-`./scripts/run-tests.sh` já cobre (113 testes automáticos) o cadastro e a persistência dos kits, a segurança,
+`./scripts/run-tests.sh` já cobre (117 testes automáticos) o cadastro e a persistência dos kits, a segurança,
 a duplicidade, o pipeline de entrega, a API HTTP e a conexão com o bot.
 
 A **camada fina do Paper** (ler a Shulker Box, mexer no inventário, Floodgate, comandos) só pode ser
@@ -91,12 +91,15 @@ Minecraft. Estes itens só se confirmam no servidor:
 - [ ] Monte uma Shulker Box com itens variados (espada encantada, armadura, comida em pilha). `/dk create Kit_Inicial` → ok. `/dk list` marca o kit como *Kit Inicial*.
 - [ ] `/dk starter` (você) → recebe **os itens soltos no inventário, sem Shulker Box**, enchants/nome/lore intactos.
 - [ ] Conta sem OP entra no servidor: cai no lobby e **não** recebe o kit (`skip-worlds: ["lobby"]`).
-- [ ] Clica no aldeão → vai para a sobrevivência e recebe o kit (mensagem no chat).
+- [ ] Conta nova clica no aldeão → vai para a sobrevivência e recebe o kit (mensagem no chat). Existe `data/starter-received.txt` com o UUID dela.
+- [ ] Volta com `/lob`, clica no aldeão várias vezes → **não** recebe de novo. Sai e entra no servidor → **não** recebe de novo. Reinicia o servidor → continua sem receber.
+- [ ] Conta nova que entra já na sobrevivência (sem passar pelo lobby) recebe ao entrar, uma vez.
 - [ ] Morre na sobrevivência e renasce (cama e sem cama) → recebe o kit depois de renascer, uma vez só.
 - [ ] Morre no Nether e renasce no Overworld → recebe **uma** vez (cooldown).
-- [ ] `/lob` e clica no aldeão de novo logo em seguida (menos de 10 s) → **não** recebe de novo; depois de 10 s recebe.
+- [ ] Morre várias vezes → recebe a cada morte (com mais de 10 s entre elas).
 - [ ] Inventário cheio → o que sobra cai aos pés; outro jogador não consegue pegar.
-- [ ] `skip-worlds: []` + `/dk reload` → ao entrar no lobby também recebe.
+- [ ] `skip-worlds: []` + `/dk reload`, conta que nunca recebeu entra no servidor → recebe no lobby (uma vez).
+- [ ] `first-time-only: false` + `/dk reload` → volta a receber a cada entrada pelo aldeão (só para conferir o interruptor).
 - [ ] Bot: o `/kits` do bot **não** lista o Kit_Inicial; um pedido do Discord por `Kit_Inicial` volta *kit não encontrado* e nada é entregue.
 - [ ] `plugins/DiscordKitBridge/data/outbox.json` e a pasta `pending` não ganham nada por causa do Kit Inicial.
 - [ ] `starter-kit.enabled: false` + `/dk reload` → ninguém recebe, e o bot continua sem enxergar o kit.

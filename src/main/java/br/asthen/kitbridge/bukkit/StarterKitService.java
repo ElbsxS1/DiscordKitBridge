@@ -2,6 +2,7 @@ package br.asthen.kitbridge.bukkit;
 
 import br.asthen.kitbridge.DiscordKitBridge;
 import br.asthen.kitbridge.core.StarterKitPolicy;
+import br.asthen.kitbridge.core.StarterKitReceived;
 import br.asthen.kitbridge.core.StarterKitSettings;
 import br.asthen.kitbridge.kit.KitData;
 import br.asthen.kitbridge.kit.KitManager.KitException;
@@ -24,23 +25,34 @@ import java.util.Optional;
  */
 public final class StarterKitService {
 
-    public enum Result { DELIVERED, COOLDOWN, NO_KIT, CORRUPT, DISABLED }
+    public enum Result { DELIVERED, COOLDOWN, NO_KIT, CORRUPT, DISABLED, ALREADY_RECEIVED }
 
     private final DiscordKitBridge plugin;
     private final StarterKitPolicy policy = new StarterKitPolicy();
+    private final StarterKitReceived received;
     private volatile boolean warnedMissing;
 
-    public StarterKitService(DiscordKitBridge plugin) {
+    public StarterKitService(DiscordKitBridge plugin, StarterKitReceived received) {
         this.plugin = plugin;
+        this.received = received;
     }
 
     public StarterKitPolicy policy() {
         return policy;
     }
 
-    /** @param trigger only used in the log: join, death, enter-world, command */
-    public Result give(Player p, String trigger) {
+    /**
+     * Join / entering survival: delivers only to a player who never received the kit (when first-time-only is on).
+     * The check and the "received" mark are both made on the server thread, so two triggers cannot both pass.
+     */
+    public Result giveFirstTime(Player p, String trigger) {
+        if (plugin.starterSettings().firstTimeOnly() && received.has(p.getUniqueId())) return Result.ALREADY_RECEIVED;
         return give(p, trigger, true);
+    }
+
+    /** Death: always delivers (apart from the short cooldown against double triggers). */
+    public Result giveOnDeath(Player p) {
+        return give(p, "death", true);
     }
 
     /** @param respectCooldown false for the admin command, which always delivers */
@@ -86,6 +98,7 @@ public final class StarterKitService {
             }
         }
 
+        if (!trigger.equals("command")) received.add(p.getUniqueId()); // an admin test does not use up the first-time kit
         plugin.logger().log("STARTER_KIT", "player", p.getName(), "uuid", p.getUniqueId(), "trigger", trigger,
                 "kit", found.get().name(), "items", items.size(), "dropped", dropped);
         if (!s.message().isEmpty()) {

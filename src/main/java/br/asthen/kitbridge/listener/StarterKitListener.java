@@ -19,9 +19,10 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Triggers of the Kit Inicial: join, death (delivered after the respawn) and entering the survival world from the
- * lobby (what LobbyGuard's villager does with {@code p.teleport}, which fires {@link PlayerChangedWorldEvent}, so
- * LobbyGuard needs no change). Nothing here talks to the Discord bot.
+ * Triggers of the Kit Inicial: join and entering the survival world from the lobby (both FIRST TIME ONLY by default, so
+ * the villager cannot be spammed) and death (always, delivered after the respawn). The lobby move is what LobbyGuard's
+ * villager does with {@code p.teleport}, which fires {@link PlayerChangedWorldEvent}, so LobbyGuard needs no change.
+ * Nothing here talks to the Discord bot.
  */
 public final class StarterKitListener implements Listener {
 
@@ -47,7 +48,7 @@ public final class StarterKitListener implements Listener {
             if (!p.isOnline()) return;
             StarterKitSettings now = plugin.starterSettings();
             if (StarterKitPolicy.inWorlds(p.getWorld().getName(), now.joinSkipWorlds())) return;
-            plugin.starterKit().give(p, "join");
+            plugin.starterKit().giveFirstTime(p, "join");
         }, 20L);
     }
 
@@ -63,7 +64,7 @@ public final class StarterKitListener implements Listener {
         if (!died.remove(p.getUniqueId())) return;
         // two ticks later: the respawn location (set by LobbyGuard or a bed) is final and the player is back in the world
         Bukkit.getScheduler().runTaskLater(plugin, () -> {
-            if (p.isOnline() && !p.isDead()) plugin.starterKit().give(p, "death");
+            if (p.isOnline() && !p.isDead()) plugin.starterKit().giveOnDeath(p);
         }, 2L);
     }
 
@@ -74,7 +75,7 @@ public final class StarterKitListener implements Listener {
         StarterKitSettings s = plugin.starterSettings();
         if (!s.enabled() || !s.matchesEnter(e.getFrom().getName(), p.getWorld().getName())) return;
         Bukkit.getScheduler().runTaskLater(plugin, () -> {
-            if (p.isOnline()) plugin.starterKit().give(p, "enter-world");
+            if (p.isOnline()) plugin.starterKit().giveFirstTime(p, "enter-world");
         }, 5L);
     }
 

@@ -141,25 +141,85 @@ final class Tests140 {
 
         test("matchesEnter: só lobby -> survival (o aldeão); não dispara no sentido contrário nem entre outros mundos", () -> {
             StarterKitSettings s = new StarterKitSettings(true, "Kit_Inicial", 10, true, Set.of("lobby"), true, true,
-                    "lobby", "survival", true, "");
+                    "lobby", "survival", true, true, "");
             ok(s.matchesEnter("lobby", "survival"), "lobby -> survival");
             ok(s.matchesEnter("Lobby", "SURVIVAL"), "ignora maiúsculas");
             ok(!s.matchesEnter("survival", "lobby"), "survival -> lobby (/lob) não dá kit");
             ok(!s.matchesEnter("survival_nether", "survival"), "nether -> survival não dá kit");
             ok(!s.matchesEnter("lobby", "survival_nether"), "lobby -> nether não dá kit");
             StarterKitSettings off = new StarterKitSettings(true, "Kit_Inicial", 10, true, Set.of(), true, false,
-                    "lobby", "survival", true, "");
+                    "lobby", "survival", true, true, "");
             ok(!off.matchesEnter("lobby", "survival"), "on-enter-world desligado");
             StarterKitSettings blank = new StarterKitSettings(true, "Kit_Inicial", 10, true, Set.of(), true, true,
-                    "", "", true, "");
+                    "", "", true, true, "");
             ok(!blank.matchesEnter("", ""), "mundos em branco nunca casam");
         });
 
         test("StarterKitSettings normaliza valores ruins sem quebrar", () -> {
-            StarterKitSettings s = new StarterKitSettings(true, "  ", -5, true, Set.of(), true, true, null, null, true, null);
+            StarterKitSettings s = new StarterKitSettings(true, "  ", -5, true, Set.of(), true, true, null, null, true, true, null);
             eq("Kit_Inicial", s.name(), "nome padrão");
             eq(0, s.cooldownSeconds(), "cooldown negativo vira 0");
             eq("", s.message(), "mensagem nula vira vazia");
+        });
+
+        section("1.4.0 — Kit Inicial: só na primeira vez (anti-spam do aldeão)");
+
+        test("StarterKitReceived: lembra quem já recebeu, reinicia e continua lembrando", () -> {
+            java.nio.file.Path d = Tests130.dir("received1");
+            java.nio.file.Path f = d.resolve("data").resolve("starter-received.txt");
+            List<String> warns = new java.util.ArrayList<>();
+            StarterKitReceived r = new StarterKitReceived(f, warns::add);
+            eq(0, r.load(), "arquivo inexistente = lista vazia");
+            UUID a = UUID.randomUUID(), b = UUID.randomUUID();
+            ok(!r.has(a), "a ainda não recebeu");
+            ok(r.add(a), "primeira vez: novo");
+            ok(!r.add(a), "segunda vez: já estava (não entrega de novo)");
+            ok(r.has(a) && !r.has(b), "só o a");
+            StarterKitReceived r2 = new StarterKitReceived(f, warns::add); // "reiniciou o servidor"
+            eq(1, r2.load(), "recarregou do disco");
+            ok(r2.has(a) && !r2.has(b), "continua lembrando o a");
+            ok(warns.isEmpty(), "sem avisos");
+        });
+
+        test("StarterKitReceived: linha inválida é ignorada com aviso, o resto é lido", () -> {
+            java.nio.file.Path d = Tests130.dir("received2");
+            java.nio.file.Path f = d.resolve("starter-received.txt");
+            UUID a = UUID.randomUUID();
+            java.nio.file.Files.writeString(f, a + "\nlixo\n\n");
+            List<String> warns = new java.util.ArrayList<>();
+            StarterKitReceived r = new StarterKitReceived(f, warns::add);
+            eq(1, r.load(), "só o UUID válido");
+            ok(r.has(a), "lembrou o a");
+            eq(1, warns.size(), "um aviso pela linha inválida");
+        });
+
+        test("StarterKitReceived: falha ao salvar não perde a memória nem entrega de novo", () -> {
+            java.nio.file.Path d = Tests130.dir("received3");
+            java.nio.file.Path f = d.resolve("starter-received.txt");
+            Tests130.blockWrites(f);
+            List<String> warns = new java.util.ArrayList<>();
+            StarterKitReceived r = new StarterKitReceived(f, warns::add);
+            UUID a = UUID.randomUUID();
+            ok(r.add(a), "novo");
+            ok(r.has(a), "lembrado em memória mesmo sem salvar");
+            ok(!r.add(a), "não entrega duas vezes");
+            ok(!warns.isEmpty(), "o problema foi avisado");
+        });
+
+        test("StarterKitReceived: vários jogadores ao mesmo tempo, cada UUID entra uma vez só", () -> {
+            java.nio.file.Path d = Tests130.dir("received4");
+            StarterKitReceived r = new StarterKitReceived(d.resolve("s.txt"), m -> { });
+            UUID id = UUID.randomUUID();
+            java.util.concurrent.atomic.AtomicInteger novos = new java.util.concurrent.atomic.AtomicInteger();
+            List<Thread> ts = new java.util.ArrayList<>();
+            for (int i = 0; i < 16; i++) {
+                Thread t = new Thread(() -> { if (r.add(id)) novos.incrementAndGet(); });
+                ts.add(t);
+                t.start();
+            }
+            for (Thread t : ts) t.join();
+            eq(1, novos.get(), "vezes que contou como novo");
+            eq(1, r.size(), "um jogador salvo");
         });
 
         test("Kit_Inicial é um nome de kit válido (/dk create Kit_Inicial)", () -> {
