@@ -276,12 +276,6 @@ Kit entregue automaticamente, **sem Shulker Box** (só os itens de dentro) e **s
 
 O bot nunca enxerga esse kit: ele não aparece na lista sincronizada, e um pedido do Discord por esse nome responde "kit não encontrado".
 
-## Esse Plugin Trabalha com https://github.com/ElbsxS1/AsthenEssencials 
-e também 
-https://github.com/ElbsxS1/Lobby-Guard
-e com o Bot
-https://github.com/contatorzlkz-prog/BOT-ASTHEN
-
 ## 🔗 Ecossistema Asthen
 
 Este projeto faz parte do ecossistema **Asthen**, um conjunto de plugins e ferramentas que trabalham juntos para integrar o servidor Minecraft, o gerenciamento de jogadores, o lobby, os comandos, os sistemas internos e o Discord.
